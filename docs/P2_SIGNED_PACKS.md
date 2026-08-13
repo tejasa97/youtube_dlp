@@ -1,4 +1,4 @@
-# Phase 2 signed plugin packs
+# Signed plugin packs
 
 Status: signed-pack, transactional install/remove, and sandbox-adapter lane
 implemented; product/CLI registry integration remains primary-agent owned.
@@ -111,9 +111,9 @@ paths.
   require owner/mode/link-count facts exposed by those kernels. Other platforms
   return `ErrPlatformSecurity` before filesystem mutation rather than claiming
   ACL safety that the implementation cannot prove.
-- Windows support is therefore verification-only in this increment. A future
-  Windows installer needs explicit owner/ACL checks, atomic publication, and a
-  crash-releasing lock with equivalent evidence.
+- Windows support is verification-only. Installation, rollback, and removal
+  remain unavailable because equivalent owner/ACL, atomic-publication, and
+  locking evidence is absent.
 - Production signing-key custody, trusted-root distribution, and signed
   revocation-feed delivery are intentionally not selected here. This package
   accepts keys and policy; updater/release integration owns their provenance.

@@ -1,4 +1,4 @@
-# Phase 3 operations fixture provenance
+# Operations fixture provenance
 
 The version-1 canary suite was authored on 2026-07-19 for the native Go port.
 It is not derived from a yt-dlp response: the pinned upstream project does not

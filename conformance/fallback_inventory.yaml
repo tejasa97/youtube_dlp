@@ -8,7 +8,7 @@ permanent_alternatives:
     milestone: permanent
   - id: javascript-helper.discovery
     surface: JavaScript helper executable discovery
-    behavior: Selects the same pure-Go helper from an explicit path, beside the executable, or PATH.
+    behavior: Selects the same pure-Go helper from an explicit path or beside the executable; PATH discovery is disabled.
     owner: runtime
     milestone: permanent
   - id: extractor-url.normalization

@@ -201,16 +201,30 @@ revocation contracts.
 The repository contains implementation evidence for these mechanisms but does
 not yet define production signing identities or an endorsed update service.
 
-## Persistence
+## Persistence and resumable sessions
 
-Core operation state is scoped to the client or request. VidStow owns its
-separate settings/history store; the library does not persist GUI state.
-Cache and download-archive behavior is explicit and follows its own confined
-filesystem policy.
+Most operation state is scoped to the client or request. Cache and download
+archive behavior is explicit and follows its own confined filesystem policy.
+
+Resumable downloads use engine-owned session workspaces beneath an
+owner-validated output root. A session manifest and protocol-specific
+checkpoints are the authority for reusable media work; callers inspect that
+evidence through the public resume API rather than inferring safety from a
+partial file. Session publication, discard, lease, collision, and recovery
+operations fail closed when identity or commit evidence is missing, unsafe,
+contended, unavailable, or indeterminate.
+
+VidStow separately owns its State v2 application lifecycle, settings, queue,
+history, reservations, and cleanup obligations. State v2 does not replace an
+engine session manifest, and the engine does not persist GUI authority.
+
+See [Engine E5 hardening](ENGINE_E5_HARDENING.md) and the downstream
+[VidStow architecture](https://github.com/tejasa97/vidstow/blob/main/docs/ARCHITECTURE.md)
+for the two persistence authorities.
 
 ## Evidence and design decisions
 
-Architecture Decision Records live under [`docs/adr`](adr/README.md). Historical
-phase reports and evidence explain the baseline of individual decisions. The
+Architecture Decision Records live under [`docs/adr`](adr/README.md). Retained
+evidence records explain the baseline of individual decisions. The
 [project-status guide](PROJECT_STATUS.md) describes how those records relate to
 current compatibility claims.

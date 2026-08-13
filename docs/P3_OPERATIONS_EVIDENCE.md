@@ -1,6 +1,6 @@
-# Phase 3 operations evidence
+# Operations evidence
 
-This lane supplies deployment-neutral primitives rather than enabling live
+This package supplies deployment-neutral primitives and does not enable live
 canaries in the product. A versioned suite separates public, credential, and
 region canaries. Targets are bounded references resolved only by an injected
 runner; credential entries carry secret handles, never secret values.
@@ -35,10 +35,10 @@ record/incident sets against that
 suite before emitting the bounded metrics snapshot. The command performs no
 canary network execution and never resolves target or secret handles.
 
-## Deployment deviations
+## Deployment boundaries
 
 - No scheduler, dashboard, alert sink, credential resolver, regional runner, or
-  network transport is wired by this lane.
+  network transport is included.
 - Atomic persistence and coordination of the bounded execution ledger remain a
   deployment responsibility; in-process authorization is not a distributed
   rate limiter.
@@ -48,5 +48,5 @@ canary network execution and never resolves target or secret handles.
   runner's leaked goroutine.
 - Live canaries must remain opt-in and non-authoritative. Deterministic fixtures
   are still required before a live observation can support a parity claim.
-- Retention, export consent, access controls, and alert thresholds remain
-  product/deployment policy owned by later integration work.
+- Retention, export consent, access controls, and alert thresholds are external
+  product or deployment policy.

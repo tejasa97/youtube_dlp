@@ -40,5 +40,5 @@ Known deviations:
   rejected until their corresponding artifact producers exist;
 - Windows replacement of an existing related file follows Go's native rename
   guarantees and may fail closed where atomic replacement is unavailable;
-- annotation and comment-specific sidecars are separate roadmap
-  work.
+- annotation and comment-specific sidecars are outside the current
+  capability claim.

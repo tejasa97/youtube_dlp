@@ -1,4 +1,4 @@
-# Phase 1 SoundCloud extractor pilot
+# SoundCloud extractor evidence
 
 This lane implements a Python-free representative API and playlist extractor.
 The shared registry and parity manifest remain owned by the primary integrator.
@@ -219,7 +219,7 @@ registry evidence and the complete test suite passes.
 The pilot does not yet implement OAuth/cookie login or premium subscription
 formats. Track comments are supported, while the distinct `/comments` user tab
 continues to enumerate attributable media entries rather than comment bodies.
-Arbitrary script-based player discovery and future user tabs remain out of
+Arbitrary script-based player discovery and additional user tabs remain out of
 scope. Only the declared synthetic corpus is compatibility evidence. SoundCloud
 can change its web client-ID layout; failure remains explicit and bounded rather
 than relying on a pinned runtime credential.

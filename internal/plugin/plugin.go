@@ -132,7 +132,7 @@ func (limits Limits) Validate() error {
 	return nil
 }
 
-// Negotiate retains the Phase 1 enumerated-version API.
+// Negotiate retains the original enumerated-version API.
 func Negotiate(supported, offered []uint32) (uint32, error) {
 	var selected uint32
 	for _, host := range supported {

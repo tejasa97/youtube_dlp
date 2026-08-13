@@ -73,5 +73,5 @@ Python or reads the reference checkout.
 - Generated sequences cannot be delegated to an external downloader.
 - There is no process-restart resume contract for this generated protocol.
 - SABR/UMP is a separate retained experimental extension and is outside this
-  capability and the project roadmap. Broader authenticated Innertube client
+  capability claim. Broader authenticated Innertube client
   coverage remains a separate compatibility gap.

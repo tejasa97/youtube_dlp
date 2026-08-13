@@ -1,5 +1,5 @@
 // Package upstreamdelta classifies a bounded yt-dlp history window for the
-// Phase 1 maintenance replay. It is development tooling and is not linked into
+// bounded maintenance replay. It is development tooling and is not linked into
 // the product binary.
 package upstreamdelta
 

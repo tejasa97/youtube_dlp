@@ -1,7 +1,7 @@
-# Phase 2 post-processing fixtures
+# Post-processing fixture provenance
 
 The behavioral scope is derived from the read-only yt-dlp reference checkout
-at `/Users/tejas/projects/yt-dlp-reference`, commit
+at `/path/to/yt-dlp-reference`, commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`:
 
 - `yt_dlp/postprocessor/ffmpeg.py` covers audio extraction/conversion,
@@ -45,8 +45,7 @@ Lifecycle product coverage is in
 coverage is in `internal/cli/run_test.go`. The fixture matrix covers success,
 retention, postprocessor failure rollback, cancellation after a committed
 successor, overwrite rejection followed by retry, multi-output cleanup with
-`--no-part`, and simulate/skip suppression. This PR does not add shell hooks,
-`--exec`, `--postprocessor-args`, plugin postprocessors, concat, or chapter
-splitting surfaces. The separate embed-info-json boundary uses the same pinned
+`--no-part`, and simulate/skip suppression. Shell hooks, `--exec`, `--postprocessor-args`, and plugin postprocessors are
+outside this evidence boundary. The separate embed-info-json boundary uses the same pinned
 `FFmpegMetadataPP` attachment semantics with a 256 KiB cleaned payload bound,
 attachment-only replacement, and transactional media snapshot.

@@ -30,7 +30,7 @@ Classification precedence is:
 6. manual review/new-backend backlog.
 
 The generated result is deliberately conservative. Low- and medium-confidence
-rows are planning inputs, not compatibility claims. The checked-in consistency
+rows are unsupported classifications, not compatibility claims. The checked-in consistency
 test validates the total, unique `(module, class)` identities, allowed statuses,
 and required mapping fields without accessing the reference checkout.
 

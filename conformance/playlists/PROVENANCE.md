@@ -8,7 +8,7 @@ from the pinned yt-dlp reference checkout at commit
 
 The behavioral source is
 `test/test_YoutubeDL.py::TestYoutubeDL::test_playlist_items_selection`
-in `/Users/tejas/projects/yt-dlp-reference`. The upstream test establishes that
+in `/path/to/yt-dlp-reference`. The upstream test establishes that
 playlist start/end values are inclusive and one-based, reversal occurs after
 selection, and each result retains its original source `playlist_index`.
 

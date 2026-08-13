@@ -1,8 +1,8 @@
 # YouTube player-response metadata evidence
 
 Status: compatible for the bounded single-video player-response metadata corpus
-described below. This wave enriches every YouTube video using only data already
-present in the fetched watch page (player response plus attributable OpenGraph
+described below. This capability enriches every YouTube video using only data
+already present in the fetched watch page (player response plus attributable OpenGraph
 meta). No additional network requests are made and no downloader protocol or
 format-selection behavior changes beyond the pinned `yt:stretch` stretched
 ratio.
@@ -83,7 +83,7 @@ executes Python or reads the reference checkout.
   reference prefers the watch-page `videoSecondaryInfoRenderer` title, which
   arrives with watch-page enrichment.
 
-## Deferred
+## Outside the current claim
 
 Music auto-generated description fields (`album`, `artists`, `track`,
 `release_date`, `release_year`), likes, subscriber counts, badges and

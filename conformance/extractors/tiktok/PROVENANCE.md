@@ -1,6 +1,6 @@
 # TikTok pilot fixture provenance
 
-- Reference checkout: `/Users/tejas/projects/yt-dlp-reference`
+- Reference checkout: `/path/to/yt-dlp-reference`
 - Reference commit: `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 - Reference file: `yt_dlp/extractor/tiktok.py`
 - Relevant reference behavior: `TikTokIE._real_extract`,

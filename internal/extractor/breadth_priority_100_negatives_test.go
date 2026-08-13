@@ -10,7 +10,7 @@ import (
 )
 
 // Compact table-driven negative/security coverage for every breadth-priority-100
-// extractor key added on this branch (plus nowness/dacast expansions).
+// extractor key in this capability set (plus nowness/dacast expansions).
 
 func TestBreadthPriority100NegativeSecurityMatrix(t *testing.T) {
 	t.Parallel()

@@ -18,7 +18,5 @@ without inspecting or rewriting them. Rejected URLs are never included in
 diagnostics. The sanitized checked-in fixture uses inert
 `signature=redacted` text.
 
-Primary-owned follow-up: add the TikTok captions fixture/result coverage to
-the shared parity manifest and any documentation catalog if that integration
-is desired. This increment intentionally does not modify shared manifests or
-catalogs.
+This record covers the local TikTok caption fixture and result boundary. The
+capability manifest is authoritative for any broader compatibility claim.

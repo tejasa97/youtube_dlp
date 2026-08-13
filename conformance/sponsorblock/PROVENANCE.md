@@ -1,9 +1,9 @@
-# Phase 4 SponsorBlock fixture provenance
+# SponsorBlock fixture provenance
 
 The synthetic fixtures in this directory are deterministic,
 cookie-free, and contain no captured production response. They are
 derived from the pinned yt-dlp reference checkout
-`/Users/tejas/projects/yt-dlp-reference` at commit
+`/path/to/yt-dlp-reference` at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 (`yt_dlp/postprocessor/sponsorblock.py`, the mark/remove arrangement in
 `yt_dlp/postprocessor/modify_chapters.py`, and force-keyframes / concat

@@ -17,7 +17,7 @@
 ## Upstream sources
 
 Expectations were transcribed from the pinned checkout at
-`/Users/tejas/projects/yt-dlp-reference`:
+`/path/to/yt-dlp-reference`:
 
 - `yt_dlp/utils/_utils.py:5367-5666` `FormatSorter` defaults, settings, ordered
   rankings, evaluate_params, calculate_preference, and `_fill_sorting_fields`.
@@ -28,7 +28,7 @@ Expectations were transcribed from the pinned checkout at
 - `yt_dlp/utils/_utils.py:2029-2038` `int_or_none` scalar coercion (the bounded
   numeric surface used by `_fill_sorting_fields`).
 - `yt_dlp/YoutubeDL.py:2996-3028` filter, coercion, sort, and ID-normalization
-  ordering (the same pre-selection sequence PR 1 and PR 2 use).
+  ordering used by the selector preparation path.
 
 Capture resets a deep copy of the pinned `FormatSorter.settings` for every
 case because the Python implementation stores per-instance sort overrides in
@@ -46,10 +46,9 @@ semantic changes. Source indexes (original extractor list position) are kept
 alongside the canonical indexes.
 
 `Options.Sort` carries the final ordered user sort list after CLI/config
-accumulation and reset processing. Repeated `-S` flags append fields in
-occurrence order; `--format-sort-reset` clears previously accumulated user
-fields. PR 9 exposes the CLI operations; PR 4 documents the boundary and
-tests that `Options.Sort` order is preserved exactly.
+accumulation and reset processing. Repeated `-S` flags append fields in occurrence order;
+`--format-sort-reset` clears previously accumulated user fields. CLI and API
+tests verify that `Options.Sort` order is preserved exactly.
 
 `Options.PreferExtensions` is retained for Go API compatibility. It is
 applied as an explicit final legacy extension tiebreaker only after the
@@ -58,7 +57,7 @@ pinned oracle when empty.
 
 ## Effective field-order composition
 
-PR 4 implements the pinned first-occurrence-wins composition exactly. With
+The Go sorter implements the pinned first-occurrence-wins composition. With
 `Options.SortForce == false` the order is:
 
 1. forced default fields (`hidden`, `aud_or_vid`);
@@ -101,15 +100,13 @@ Rejected with `ErrInvalidPreference`:
 
 ## Selector deviations left unchanged
 
-PR 4 does not change selector algorithms. The corpus and ledger retain
-plain `best` / `worst` semantics, forward `all` ordering relative to the
-canonical best-first adapter, negated-operator evaluation, none-inclusive
-filters, quoted escaping, field syntax, Go RE2 regexes, separate product
-multistream policy, interactive `-f -` scope, multi-output post-processing
-constraints, and bounded parser and evaluator limits.
-
-PR 5 replaces the evaluator adapter and the legacy `formatScore` /
-`preferenceRank` ordering paths.
+The corpus and ledger retain plain `best` / `worst` semantics, forward `all`
+ordering relative to the canonical best-first adapter, negated-operator
+evaluation, none-inclusive filters, quoted escaping, field syntax, Go RE2
+regexes, separate product multistream policy, interactive `-f -` scope,
+multi-output post-processing constraints, and bounded parser and evaluator
+limits. The evaluator uses the canonical prepared-format adapter rather than
+legacy score-based ordering.
 
 ## Updating the baseline
 

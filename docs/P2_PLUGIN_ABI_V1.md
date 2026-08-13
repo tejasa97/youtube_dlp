@@ -1,9 +1,9 @@
-# Phase 2 Plugin ABI v1
+# Plugin ABI v1
 
 ## Status and scope
 
 The primary plugin ABI is a length-prefixed JSON RPC protocol over a native
-child process's standard input and output. ABI 1.0 preserves the Phase 1 wire
+child process's standard input and output. ABI 1.0 preserves the original wire
 version `1`; ABI 1.1 is a backwards-compatible extension encoded as `65537`
 (`major << 16 | minor`). The host and plugin declare inclusive ranges and use
 the newest version in their intersection. A different major never negotiates.
@@ -72,9 +72,8 @@ Discovery is explicit and deterministic:
    manifest, file-type, interpreter, and digest verification.
 
 Secure discovery currently fails closed on Windows because portable Go
-`FileMode` does not prove the owner and DACL. A signed-pack installer or a
-future Windows ACL verifier must supply that proof before product discovery is
-enabled there. Windows RPC process isolation and cross-builds are implemented;
+`FileMode` does not prove the owner and DACL. Product discovery remains unavailable on Windows because equivalent ACL proof
+is absent. Windows RPC process isolation and cross-builds are implemented;
 this limitation is specifically trusted-root ownership validation, not the
 wire protocol.
 
@@ -159,9 +158,8 @@ Native RPC bounds wall-clock time, cancellation grace, message bytes, retained
 stderr, argument count/size, manifest bytes, entrypoint bytes, and process-tree
 lifetime. It does **not** claim a portable CPU quota, process-count quota, or
 address-space limit. `Limits.MemoryLimitPages` is ignored by native RPC and is
-enforced only by the WASM host. A native memory/CPU sandbox requires a future
-platform supervisor; the absence is explicit rather than silently falling
-back to an unsandboxed mode.
+enforced only by the WASM host. The current native RPC boundary does not claim a memory or CPU sandbox; the
+absence is explicit rather than silently falling back to an unsandboxed mode.
 
 On Windows the internal plugin RPC code path spawns the child
 suspended via

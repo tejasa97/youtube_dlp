@@ -1,8 +1,8 @@
 # YouTube watch-enrichment evidence
 
 Status: compatible for the bounded single-video watch-page metadata corpus
-described below. This wave extends the single-video extraction with
-watch-page (`ytInitialData`) fields via a reusable bounded parser and a shared
+described below. This capability extends single-video extraction with watch-page
+(`ytInitialData`) fields via a reusable bounded parser and a shared
 availability normalizer. No new network requests are introduced.
 
 ## User-visible behavior
@@ -80,11 +80,11 @@ pinned reference (`yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`):
   and dislike counts, heatmap bounds, availability precedence, and the
   comment-count contract.
 
-## Explicit deferrals
+## Outside the current claim
 
-- Live-chat subtitle injection and the `youtube_live_chat` protocol remain
-  pending.
-- Authenticated clients beyond existing boundaries remain pending.
+- Live-chat subtitle injection and the `youtube_live_chat` protocol are
+  unsupported.
+- Authenticated clients beyond the documented boundaries are unsupported.
 - Unknown renderer families are not claimed.
-- Music auto-generated description metadata remains pending (deferred from
+- Music auto-generated description metadata is outside this claim (excluded from
   the player-response wave).

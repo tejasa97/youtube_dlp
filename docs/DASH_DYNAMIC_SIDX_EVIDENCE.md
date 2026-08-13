@@ -10,7 +10,7 @@ Status: implemented and locally verified.
 
 ## Provenance (behavioral reference only)
 
-Reference checkout: `/Users/tejas/projects/yt-dlp-reference` at commit
+Reference checkout: `/path/to/yt-dlp-reference` at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (read-only, not a dependency).
 
 Observations from that commit:

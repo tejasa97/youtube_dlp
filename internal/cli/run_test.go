@@ -112,7 +112,7 @@ func TestRunHelpIsCurrentAndSuccessful(t *testing.T) {
 		!strings.Contains(stderr.String(), "live-from-start") ||
 		!strings.Contains(stderr.String(), "no-quiet") ||
 		!strings.Contains(stderr.String(), "no-simulate") ||
-		strings.Contains(stderr.String(), "Phase 2 alpha development") {
+		strings.Contains(stderr.String(), "alpha development") {
 		t.Fatalf("help is stale: %q", stderr.String())
 	}
 }

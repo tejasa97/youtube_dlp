@@ -1,4 +1,4 @@
-# Phase 1 upstream-delta replay
+# Pinned upstream-delta replay
 
 ## Scope and method
 
@@ -40,13 +40,13 @@ pretending that automated labels prove semantic absorption.
 | `7fdc46d01` PO-token sanitization | extractor, challenge | challenge/token policy | The selected EJS corpus is unaffected. PO-token provider breadth remains an explicit YouTube deviation, with no Python bridge. |
 | runtime-version changes `e534a3261`, `b536d72c8`, `98e42eb04` | challenge | isolated JavaScript engine contract | The embedded Go engine has no Deno/Node/Bun runtime dependency. Engine conformance remains fixture-driven. |
 | YouTube tab pagination/metadata series `b23046bbc` through `a75ba96fa` | extractor | lazy continuation entry sequence | Renderer-specific traversal changes remain extractor-local; pagination, cancellation, loop detection, and nested playlist boundaries remain reusable. |
-| `aaa1c7895` Twitch dead rechat removal | extractor | Twitch pilot | No edit: Phase 1 Twitch does not claim subtitles/chat. Metadata, token, and live HLS behavior stay extractor-local. |
-| SoundCloud series including `8bdfbfd44` | extractor | API/pagination extractor | Replayed into the Phase 1 SoundCloud lane as API response fixtures and lazy playlist expectations. |
+| `aaa1c7895` Twitch dead rechat removal | extractor | Twitch pilot | No edit: the pinned Twitch corpus does not claim subtitles/chat. Metadata, token, and live HLS behavior stay extractor-local. |
+| SoundCloud series including `8bdfbfd44` | extractor | API/pagination extractor | Replayed into the pinned SoundCloud corpus as API response fixtures and lazy playlist expectations. |
 | Instagram series `f49b551a0`, `8b8e3e3cb`, `ac4c955ea` | extractor, transport | impersonation, cookie/auth categorization | Replayed into the anti-bot lane; native fallback must be explicit and invalid cookies must become authentication failures. |
 | `272657252` external curl redirect-cookie leak | transport, downloader | shared cookie jar and request director | Product downloads use the scoped Go cookie jar rather than command-line cookie headers. Cross-host redirect scoping belongs in shared transport tests. |
 | `a6791415e` ffmpeg direct-merge headers | downloader, postprocessor | supervised argument construction | HTTP header propagation is an ffmpeg operation input, not downloader-specific shell construction; arguments remain redacted and shell-free. |
 | `e85da3b98` FFmpeg metadata language conversion | postprocessor | typed postprocessor operation | Metadata writing is outside the minimal merge/remux pilot and remains a named deviation; adding it does not alter process supervision. |
-| `b6590aaa1` safe `--write-link` output and safe-extension changes | CLI | CLI/output confinement | Link-writing is outside the Phase 1 CLI corpus. Existing output confinement remains the reusable home for future implementation. |
+| `b6590aaa1` safe `--write-link` output and safe-extension changes | CLI | CLI/output confinement | Link-writing is outside the pinned CLI corpus. Output confinement was outside the recorded compatibility claim. |
 
 ## Churn and maintenance assessment
 
@@ -68,12 +68,9 @@ their contracts:
 
 Fixture churn is concentrated in platform-specific corpora. Cross-cutting
 changes require reusable tests in one shared package rather than copies in each
-extractor. This is the maintenance model Phase 2 should retain.
+extractor. This was the maintenance model established by the replay.
 
 ## Explicit limitation
 
-This is a backward historical replay because eight future weeks after the
-2026-07-14 pin do not yet exist. It demonstrates absorption over a real
-eight-week change sample, but it cannot truthfully claim observation of future
-post-pin changes. Re-running the same inventory tool after 2026-09-08 is the
-bounded follow-up needed to satisfy the original forward-window wording.
+This is a backward historical replay over the eight-week sample preceding the
+2026-07-14 pin. It does not claim observation of changes after that pin.

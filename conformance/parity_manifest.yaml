@@ -117,7 +117,7 @@ capabilities:
   - id: foundation.cli
     name: Foundation CLI boundary
     phase: 0
-    compatibility_target: Run the Phase 0 fixture/direct-HTTP workflow with stable help, output separation, and categorized exits.
+    compatibility_target: Run the fixture/direct-HTTP workflow with stable help, output separation, and categorized exits.
     status: compatible
     evidence:
       - internal/cli.TestRunVersion
@@ -318,7 +318,7 @@ capabilities:
       - cli.simulation
       - compat.output_template_minimal
       - extractor.playlists
-    known_deviation: Captured console values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Upstream-only template syntax beyond the bounded native parser remains pending.
+    known_deviation: Captured console values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Upstream-only template syntax beyond the bounded native parser is unsupported.
 
   - id: foundation.embedding_api
     name: Cancellable Go embedding boundary
@@ -976,7 +976,7 @@ capabilities:
       - .github/python-free.Dockerfile
     owner: runtime
     known_deviation: >
-      Compatibility is scoped to the pinned Phase 1 EJS corpus; live
+      Compatibility is scoped to the pinned EJS corpus; live
       player-variant breadth and component updates remain extractor and
       upstream-delta work. The two-phase preprocess/solve split uses a
       scoped trusted wall-time allowance (60 s) for EJS preprocessing only.
@@ -1004,8 +1004,8 @@ capabilities:
       TestSingleflightCanceledLeaderNoFollowersReturnsPromptly,
       TestFlightOwnershipAbandonedDoesNotDeleteReplacement,
       TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves.
-      Live validation: pending (requires service conditions permitting
-      protected-video extraction). Remaining deviation: no sanitized
+      Live validation: unavailable because suitable service conditions and
+      redistributable fixtures are absent. Remaining deviation: no sanitized
       real 1-2 MB player fixture committed (proprietary); the generated
       ~150 KB workload exercises the parse path but does not empirically
       reproduce the original 30 s timeout; the fix is proven structurally
@@ -1420,7 +1420,7 @@ capabilities:
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID, pinned Unicode-aware `@handle`, and bounded Unicode legacy `/user` and `/c` alias explicit `/videos`, `/shorts`, `/streams`, `/playlists`, `/home`, `/featured`, `/community`, `/releases`, `/podcasts`, and `/membership` tabs, plus channel-advertised custom tabs securely bound to the requested identity, channel-local `/search?query=` routes, bare channel/handle/alias roots that lazily aggregate advertised videos, streams, and Shorts or try the synthesized `UU<channel-suffix>` uploads playlist, bounded public `ytsearch` (video-filtered) and results-URL search that emits video/Shorts/playlist/channel/shelf URL results with supported decoded `sp` filters (hashtag tiles emit registered `youtube_hashtag` URL results; show/grid-show playlist renderers and attributable availability badges are included; playlist/view pre-fetch counts are emitted when sidebar/header text is attributable), bounded YouTube Music default/song/video/album/artist/playlist section search with podcast lockups as URL results and registered Music browse families (`MPRE`/`MPSP`/`VL`/`UC`/`MPLA`) consumed by cookie-isolated WEB_REMIX `youtube_music_browse` (isolation required before any network call including initial GET; anonymous public success; albums require canonical music.youtube.com playlist identity or fail closed; empty album pages hydrate via WEB_REMIX resolve+browse with identity-equality checks; auth/premium Music fail closed), bounded opt-in public and authenticated-WEB comments, authenticated exact-origin WEB browse/search continuations (browse visitor rotation; search reuses the initial visitor; incomplete logged-in config fails closed without anonymous fallback), live-HLS, finite post-live DVR reconstruction, opt-in active live-from-start reconstruction, structured player-config discovery, native-client recovery, authenticated exact-origin WEB player format recovery, manual/automatic/translated caption renderer, bounded subtitle listing with explicit simulation control, sidecar selection/download/conversion/embedding, and explicit native-Go PO-token provider corpus. Mixed home feeds accept video and playlist renderers; community feeds emit attached and inline media URL results with per-post duplicate suppression and cross-post occurrence retention; releases and podcasts emit playlist results; membership feeds emit video results only when the supplied transport/session is already authorized. Bare roots exclude home shelves and membership, preserve upload occurrence order, support no-videos and empty channels, and enforce one aggregate entry bound. Comment retrieval supports top/new ordering, visitor rotation, legacy and modern fields, inline replies, click-tracked reply continuations, nested subthreads, pinned duplicate handling, bounded transient/incomplete retries, actual retrieved counts, and explicit total/parent/reply/per-thread/depth limits. Signed-in WEB comments and browse/search continuations keep requests inside the exact-origin no-redirect cookie boundary; WEB and WEB_REMIX identities never cross. It does not claim other authenticated comment clients, estimated timestamps, upstream's configurable ignore-error policy, or untested renderer families. Anonymous visitor identity is propagated across bounded, cookie-isolated Android, Android VR, web_safari, iOS, and mweb recovery requests, enabling URL-bearing adaptive video/audio recovery. Logged-in watch pages with valid SID cookies use redirect-disabled WEB player and comment requests, then authenticated defaults `tv_downgraded`/`web_safari` or premium `tv_downgraded`/`web_creator` (Premium changes GVS PO-token requirements only; non-Premium `web_creator` only when age-gated playability is attributable; first successful candidate wins with no cross-player merge); credentials never cross into anonymous clients and WEB_REMIX never enters video recovery. Availability badges use order-independent precedence; count text accepts canonical grouped integers or k/m/b/kk with allowlisted trailing nouns only. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results. Membership entitlement acquisition, Python-regex-only language rules, external live-generator delegation, authenticated Music success, and unregistered Music browse prefixes remain pending. Single-video player-response metadata covers validated channel/uploader identities (exact public UCID for channel URLs, shared Unicode-aware `@[\w.-]{3,30}` handle grammar for uploader URLs), attributable upload dates and timestamps, age limit, private/needs-auth/unlisted availability, categories, tags, average rating, embeddability, media type, deterministic thumbnail collection with deduplication (best original selected by preference/width/height/id/url, full generated ladder always preserved), and yt:stretch stretched ratio; watch-page metadata enriches the same extraction with structured/engagement-panel/description-fallback chapters (normalized, clamped, capped, and closed against the video duration), bounded heatmap, like/dislike counts, approximate comment count (preserved through deferred comment retrieval, actual retrieved count retained as a documented fallback), subscriber count, channel verification, concurrent live viewers, series/season/episode/location, watch-page dateText upload-date fallback, and completed public/premium/subscriber-only availability via a shared lower-level precedence normalizer that both the renderer and watch-page adapters feed. Music auto-generated description fields remain pending. Authenticated recovery keeps initial watch-page metadata alongside recovered format sources. Format fidelity covers pinned codec classification with dynamic range, format notes and quality ranks, source preferences, DRC/super-resolution suffixes, audio-track language preferences, DASH containers, damaged-format and 3gp preferences, filesize approximation, and same-itag collision preservation; `abr`/`vbr`/`scodec` are not emitted and storyboards, DRM playback, new protocols, and SABR expansion remain pending. The retained bounded finite-VOD SABR/UMP implementation is an experimental extension outside this compatibility target; no SABR expansion is a parity blocker or roadmap item. YouTube Clips (`/clip/<id>`) resolve transparently to their source video through a bounded `ytInitialData` parse, fail closed when the source video id is missing (pinned Unable to find video ID message) or timing is malformed/over-budget, and overlay the clip identity (clip id precedence per the pinned url_transparent rule, a clip media type, `section_start`/`section_end`, clip webpage URL, and https-priority `_format_sort_fields`) so the generic media-section consumer derives the clip duration and produces a sectioned artifact; source metadata remains authoritative and nocookie hosts are excluded.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID, pinned Unicode-aware `@handle`, and bounded Unicode legacy `/user` and `/c` alias explicit `/videos`, `/shorts`, `/streams`, `/playlists`, `/home`, `/featured`, `/community`, `/releases`, `/podcasts`, and `/membership` tabs, plus channel-advertised custom tabs securely bound to the requested identity, channel-local `/search?query=` routes, bare channel/handle/alias roots that lazily aggregate advertised videos, streams, and Shorts or try the synthesized `UU<channel-suffix>` uploads playlist, bounded public `ytsearch` (video-filtered) and results-URL search that emits video/Shorts/playlist/channel/shelf URL results with supported decoded `sp` filters (hashtag tiles emit registered `youtube_hashtag` URL results; show/grid-show playlist renderers and attributable availability badges are included; playlist/view pre-fetch counts are emitted when sidebar/header text is attributable), bounded YouTube Music default/song/video/album/artist/playlist section search with podcast lockups as URL results and registered Music browse families (`MPRE`/`MPSP`/`VL`/`UC`/`MPLA`) consumed by cookie-isolated WEB_REMIX `youtube_music_browse` (isolation required before any network call including initial GET; anonymous public success; albums require canonical music.youtube.com playlist identity or fail closed; empty album pages hydrate via WEB_REMIX resolve+browse with identity-equality checks; auth/premium Music fail closed), bounded opt-in public and authenticated-WEB comments, authenticated exact-origin WEB browse/search continuations (browse visitor rotation; search reuses the initial visitor; incomplete logged-in config fails closed without anonymous fallback), live-HLS, finite post-live DVR reconstruction, opt-in active live-from-start reconstruction, structured player-config discovery, native-client recovery, authenticated exact-origin WEB player format recovery, manual/automatic/translated caption renderer, bounded subtitle listing with explicit simulation control, sidecar selection/download/conversion/embedding, and explicit native-Go PO-token provider corpus. Mixed home feeds accept video and playlist renderers; community feeds emit attached and inline media URL results with per-post duplicate suppression and cross-post occurrence retention; releases and podcasts emit playlist results; membership feeds emit video results only when the supplied transport/session is already authorized. Bare roots exclude home shelves and membership, preserve upload occurrence order, support no-videos and empty channels, and enforce one aggregate entry bound. Comment retrieval supports top/new ordering, visitor rotation, legacy and modern fields, inline replies, click-tracked reply continuations, nested subthreads, pinned duplicate handling, bounded transient/incomplete retries, actual retrieved counts, and explicit total/parent/reply/per-thread/depth limits. Signed-in WEB comments and browse/search continuations keep requests inside the exact-origin no-redirect cookie boundary; WEB and WEB_REMIX identities never cross. It does not claim other authenticated comment clients, estimated timestamps, upstream's configurable ignore-error policy, or untested renderer families. Anonymous visitor identity is propagated across bounded, cookie-isolated Android, Android VR, web_safari, iOS, and mweb recovery requests, enabling URL-bearing adaptive video/audio recovery. Logged-in watch pages with valid SID cookies use redirect-disabled WEB player and comment requests, then authenticated defaults `tv_downgraded`/`web_safari` or premium `tv_downgraded`/`web_creator` (Premium changes GVS PO-token requirements only; non-Premium `web_creator` only when age-gated playability is attributable; first successful candidate wins with no cross-player merge); credentials never cross into anonymous clients and WEB_REMIX never enters video recovery. Availability badges use order-independent precedence; count text accepts canonical grouped integers or k/m/b/kk with allowlisted trailing nouns only. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results. Membership entitlement acquisition, Python-regex-only language rules, external live-generator delegation, authenticated Music success, and unregistered Music browse prefixes are unsupported. Single-video player-response metadata covers validated channel/uploader identities (exact public UCID for channel URLs, shared Unicode-aware `@[\w.-]{3,30}` handle grammar for uploader URLs), attributable upload dates and timestamps, age limit, private/needs-auth/unlisted availability, categories, tags, average rating, embeddability, media type, deterministic thumbnail collection with deduplication (best original selected by preference/width/height/id/url, full generated ladder always preserved), and yt:stretch stretched ratio; watch-page metadata enriches the same extraction with structured/engagement-panel/description-fallback chapters (normalized, clamped, capped, and closed against the video duration), bounded heatmap, like/dislike counts, approximate comment count (preserved through deferred comment retrieval, actual retrieved count retained as a documented fallback), subscriber count, channel verification, concurrent live viewers, series/season/episode/location, watch-page dateText upload-date fallback, and completed public/premium/subscriber-only availability via a shared lower-level precedence normalizer that both the renderer and watch-page adapters feed. Music auto-generated description fields are unsupported. Authenticated recovery keeps initial watch-page metadata alongside recovered format sources. Format fidelity covers pinned codec classification with dynamic range, format notes and quality ranks, source preferences, DRC/super-resolution suffixes, audio-track language preferences, DASH containers, damaged-format and 3gp preferences, filesize approximation, and same-itag collision preservation; `abr`/`vbr`/`scodec` are not emitted and storyboards, DRM playback, new protocols, and SABR expansion are outside the current claim. The retained bounded finite-VOD SABR/UMP implementation is an experimental extension outside this compatibility target; SABR expansion is outside the current claim. YouTube Clips (`/clip/<id>`) resolve transparently to their source video through a bounded `ytInitialData` parse, fail closed when the source video id is missing (pinned Unable to find video ID message) or timing is malformed/over-budget, and overlay the clip identity (clip id precedence per the pinned url_transparent rule, a clip media type, `section_start`/`section_end`, clip webpage URL, and https-priority `_format_sort_fields`) so the generic media-section consumer derives the clip duration and produces a sectioned artifact; source metadata remains authoritative and nocookie hosts are excluded.
 
   - id: extractor.playlists
     name: Playlist extraction model
@@ -1518,7 +1518,7 @@ capabilities:
     owner: extractors
     depends_on:
       - protocol.hls
-    known_deviation: The compatible pilot includes signed Twitch HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly. External live-generator delegation, restart resume, subscriber/private entitlements, restricted mature/geo behavior, chat/comments, and unsupported credential flows remain deferred; the reviewed Twitch family breadth is tracked by extractor.twitch_pilot.
+    known_deviation: The compatible pilot includes signed Twitch HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly. External live-generator delegation, restart resume, subscriber/private entitlements, restricted mature/geo behavior, chat/comments, and unsupported credential flows are outside the claim; the reviewed Twitch family breadth is tracked by extractor.twitch_pilot.
 
   - id: extractor.twitch_pilot
     name: Twitch live extraction pilot
@@ -1686,7 +1686,7 @@ capabilities:
       - extractor.playlists
       - protocol.hls
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the pinned public track, original-download and opt-in track-comment corpus, static and tokenized private-set corpus, bare-profile, lazy profile-tab (`tracks`, `albums`, `sets`, `reposts`, `likes`, `spotlight`, `comments`), exact legacy API user permalink, stations/related-media, public player/embed, and bounded public track-search corpus. Search supports `scsearch`, counts through 200, a 200-result `scsearchall` cap, and a narrow canonical web URL; it uses cookie-isolated API requests and at most four pages. Player discovery covers declared HTML attributes, Twitter player metadata, and JSON-LD embedUrl through the bounded generic extractor rather than arbitrary scripts. The profile `/comments` tab enumerates media entries and is distinct from track-comment bodies. OAuth/login-backed private media, premium subscription formats, and arbitrary future profile resources remain broader SoundCloud work.
+    known_deviation: Compatibility is scoped to the pinned public track, original-download and opt-in track-comment corpus, static and tokenized private-set corpus, bare-profile, lazy profile-tab (`tracks`, `albums`, `sets`, `reposts`, `likes`, `spotlight`, `comments`), exact legacy API user permalink, stations/related-media, public player/embed, and bounded public track-search corpus. Search supports `scsearch`, counts through 200, a 200-result `scsearchall` cap, and a narrow canonical web URL; it uses cookie-isolated API requests and at most four pages. Player discovery covers declared HTML attributes, Twitter player metadata, and JSON-LD embedUrl through the bounded generic extractor rather than arbitrary scripts. The profile `/comments` tab enumerates media entries and is distinct from track-comment bodies. OAuth/login-backed private media, premium subscription formats, and unregistered profile resources are outside the current claim.
 
   - id: extractor.streamable_public
     name: Streamable shared-hosting extraction
@@ -1914,7 +1914,7 @@ capabilities:
     depends_on:
       - protocol.hls
       - network.shared_transport
-    known_deviation: The claim is limited to the pinned anonymous public corpus and attributable TED HTTPS hosts. Login/private, unavailable, DRM, geo, live, future GraphQL/API schema changes, arbitrary external media handoffs, and production-service interoperability beyond the deterministic fixtures are deferred.
+    known_deviation: The claim is limited to the pinned anonymous public corpus and attributable TED HTTPS hosts. Login/private, unavailable, DRM, geo, live, future GraphQL/API schema changes, arbitrary external media handoffs, and production-service interoperability beyond the deterministic fixtures are outside the claim.
   - id: extractor.vk_public_ecosystem
     name: VK public ecosystem (partial)
     phase: 2
@@ -1942,7 +1942,7 @@ capabilities:
     depends_on:
       - network.shared_transport
       - extractor.playlists
-    known_deviation: Only anonymous public fixture-backed VK/VK Play paths are claimed. VKIE Daxab forms and YouTube/Vimeo/Dailymotion handoffs remain deferred. VK Play live is HLS-only; login/private/password/deleted/friends-only/age/account-gated/geo-only/DRM/websocket/chat/unavailable rows/redirects/non-HLS live and production host rotation remain deferred.
+    known_deviation: Only anonymous public fixture-backed VK/VK Play paths are claimed. VKIE Daxab forms and YouTube/Vimeo/Dailymotion handoffs are outside the claim. VK Play live is HLS-only; login/private/password/deleted/friends-only/age/account-gated/geo-only/DRM/websocket/chat/unavailable rows/redirects/non-HLS live and production host rotation are unsupported.
 
   - id: extractor.flickr
     name: Flickr public video extraction
@@ -2026,7 +2026,7 @@ capabilities:
     owner: extractors
     depends_on:
       - network.shared_transport
-    known_deviation: Only public video routes with optional language prefixes and trailing info-page suffixes are claimed. Account workflows, uploads, and non-video Amara pages are deferred. Parent metadata is carried through bounded Go product re-entry rather than Python url_transparent in-process merge.
+    known_deviation: Only public video routes with optional language prefixes and trailing info-page suffixes are claimed. Account workflows, uploads, and non-video Amara pages are outside the current claim. Parent metadata is carried through bounded Go product re-entry rather than Python url_transparent in-process merge.
 
   - id: extractor.internetarchive_public
     name: Internet Archive public API and playlist extraction
@@ -2190,7 +2190,7 @@ capabilities:
       - network.impersonation
       - protocol.hls
       - protocol.dash
-    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including exact channel/group/album/showcase child-video routes and manual VTT text tracks on the exact HTTPS player origin, public HTML channel/user/group playlist roots, anonymous positive-numeric or narrowly validated ASCII-slug public album/showcase roots, bounded album/showcase embed and embed2 forms with validated Referer propagation to player child URLs, credential-isolated HLS/DASH manifest subtitle fallbacks, and direct HTTPS numeric-id/10-lowercase-hex authenticated unlisted-share URLs. Authenticated shares use the operation jar's Vimeo cookie only on the exact no-redirect viewer endpoint, use the resulting JWT only on api.vimeo.com, identity-bind API URI and player-config video ID, preserve pinned API metadata, and use the scoped web API privacy/download source-format path. Caller query and fragment forms are stripped before requests. Contextual child-video pages and player-config requests preserve a canonical token-free contextual Referer unless a validated playlist Referer is propagated; HTML playlist pages and slug resolution use credential-isolated no-redirect requests; album and texttracks API pages use an ephemeral scoped application JWT with no ambient credentials or redirects. The anonymous viewer-JWT texttracks API is attempted but may still be rejected by Vimeo for some corpora; player-config and manifest fallbacks remain authoritative in that case. Interactive login, password submission, non-share private URL discovery, broader upstream slug/hash syntax, likes/watch-later, DRM, arbitrary contextual subpaths, live archive variants, the cookie-bearing webpage download-config fallback, CDN HEAD extension detection, and original_format_policy=always remain broader Vimeo work. Authenticated source discovery is best effort except for cancellation. Live resolver/album/private-video API compatibility is not claimed from synthetic fixtures alone.
+    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including exact channel/group/album/showcase child-video routes and manual VTT text tracks on the exact HTTPS player origin, public HTML channel/user/group playlist roots, anonymous positive-numeric or narrowly validated ASCII-slug public album/showcase roots, bounded album/showcase embed and embed2 forms with validated Referer propagation to player child URLs, credential-isolated HLS/DASH manifest subtitle fallbacks, and direct HTTPS numeric-id/10-lowercase-hex authenticated unlisted-share URLs. Authenticated shares use the operation jar's Vimeo cookie only on the exact no-redirect viewer endpoint, use the resulting JWT only on api.vimeo.com, identity-bind API URI and player-config video ID, preserve pinned API metadata, and use the scoped web API privacy/download source-format path. Caller query and fragment forms are stripped before requests. Contextual child-video pages and player-config requests preserve a canonical token-free contextual Referer unless a validated playlist Referer is propagated; HTML playlist pages and slug resolution use credential-isolated no-redirect requests; album and texttracks API pages use an ephemeral scoped application JWT with no ambient credentials or redirects. The anonymous viewer-JWT texttracks API is attempted but may still be rejected by Vimeo for some corpora; player-config and manifest fallbacks remain authoritative in that case. Interactive login, password submission, non-share private URL discovery, broader upstream slug/hash syntax, likes/watch-later, DRM, arbitrary contextual subpaths, live archive variants, the cookie-bearing webpage download-config fallback, CDN HEAD extension detection, and original_format_policy=always are outside the current claim. Authenticated source discovery is best effort except for cancellation. Live resolver/album/private-video API compatibility is not claimed from synthetic fixtures alone.
 
   - id: extractor.tiktok_pilot
     name: TikTok impersonation and anti-bot pilot
@@ -2294,7 +2294,7 @@ capabilities:
       - protocol.hls
       - protocol.dash
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the pinned SVT single-video, series/season, and article-page corpus. Article routes are exact HTTPS svt.se paths with credential-isolated no-redirect fetches and bounded JSON-only urqlState decoding; arbitrary JavaScript transformation and malformed video rows are not accepted. HDS, manifest pre-expansion, and geo-bypass header synthesis remain broader regional work.
+    known_deviation: Compatibility is scoped to the pinned SVT single-video, series/season, and article-page corpus. Article routes are exact HTTPS svt.se paths with credential-isolated no-redirect fetches and bounded JSON-only urqlState decoding; arbitrary JavaScript transformation and malformed video rows are not accepted. HDS, manifest pre-expansion, and geo-bypass header synthesis are outside the current claim.
 
   - id: extractor.nhk_family
     name: NHK World / School / Radiru family
@@ -2507,7 +2507,7 @@ capabilities:
       - conformance/compatibility/phase2/PROVENANCE.md
       - docs/MATCH_FILTER_PARITY_EVIDENCE_2026_07_29.md
     owner: core
-    known_deviation: "Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; break-match filters reuse that grammar and stop playlist expansion before the rejected entry. Exact `-` marker prompting is supported on ordinary and breaking filters for complete, non-archived entries; flat/incomplete entries, no-format entries, and automatic subtitle-only listing do not prompt, explicit simulation and combined metadata-output modes do, and breaking-prompt acceptance preserves the pinned ordinary-filter bypass. Prompts use each selected output plan's filename in stable order, format-dependent conditions are reevaluated against that selection, and merged A/V fields follow the pinned merge policy. Interactive filtering is intentionally rejected with `--progress-json` to preserve its machine-readable stderr contract. Match-filter regex is the bounded Python-compatible subset translated by `internal/compat/pyregex.Translate` and compiled with `regexp2`. Open quantifiers compile; safety is enforced at execution time by source, translated, and per-input byte limits (`maxRegexBytes=512`, `maxTranslatedRegexBytes=16<<10`, `maxRegexInputBytes=64<<10`), per-match attempts (`maxRegexAttempts=256`), aggregate inspected bytes (`maxRegexInspectedBytes=4<<20`), per-match wall time (`regexp2.MatchTimeout=regexMatchTimeout=25ms`), and aggregate wall time (`regexWallBudget=250ms`, enforced in `internal/compat/matchfilter/filter.go::searchPythonRegex`). Patterns that exceed the source or translated byte budget or fail translation are rejected at parse/compile time. Chapter-removal regex uses the same adapter with the analogous chapter-removal bounds (`internal/compat/chapterremove/program.go::Parse` -> `pyregex.Translate`, `MaxRegexSourceBytes=4096`, `MaxRegexTranslatedBytes=16<<10`, `MaxRegexInputBytes=64<<10`, `MaxRegexAttempts=256`, `MaxRegexInspectedBytes=4<<20`, `RegexMatchTimeout=25ms`, `RegexAggregateWallBudget=250ms`) and a shared `EvaluationBudget` over the entire media item (`internal/compat/chapterremove/program.go::MatchTitleWithBudget`). The supported surface is the bounded Python-compatible subset translated by `internal/compat/pyregex`: anchors, character classes, repetition, alternation, lookahead and lookbehind, and bounded backreferences. Other Python regular expression features remain unsupported. Template arithmetic and Unicode conversions are limited to the bounded corpus; arbitrary template code evaluation and remaining CLI format-selection surfaces remain explicitly unsupported.
+    known_deviation: "Compatibility is scoped to the bounded checked-in corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; break-match filters reuse that grammar and stop playlist expansion before the rejected entry. Exact `-` marker prompting is supported on ordinary and breaking filters for complete, non-archived entries; flat/incomplete entries, no-format entries, and automatic subtitle-only listing do not prompt, explicit simulation and combined metadata-output modes do, and breaking-prompt acceptance preserves the pinned ordinary-filter bypass. Prompts use each selected output plan's filename in stable order, format-dependent conditions are reevaluated against that selection, and merged A/V fields follow the pinned merge policy. Interactive filtering is intentionally rejected with `--progress-json` to preserve its machine-readable stderr contract. Match-filter regex is the bounded Python-compatible subset translated by `internal/compat/pyregex.Translate` and compiled with `regexp2`. Open quantifiers compile; safety is enforced at execution time by source, translated, and per-input byte limits (`maxRegexBytes=512`, `maxTranslatedRegexBytes=16<<10`, `maxRegexInputBytes=64<<10`), per-match attempts (`maxRegexAttempts=256`), aggregate inspected bytes (`maxRegexInspectedBytes=4<<20`), per-match wall time (`regexp2.MatchTimeout=regexMatchTimeout=25ms`), and aggregate wall time (`regexWallBudget=250ms`, enforced in `internal/compat/matchfilter/filter.go::searchPythonRegex`). Patterns that exceed the source or translated byte budget or fail translation are rejected at parse/compile time. Chapter-removal regex uses the same adapter with the analogous chapter-removal bounds (`internal/compat/chapterremove/program.go::Parse` -> `pyregex.Translate`, `MaxRegexSourceBytes=4096`, `MaxRegexTranslatedBytes=16<<10`, `MaxRegexInputBytes=64<<10`, `MaxRegexAttempts=256`, `MaxRegexInspectedBytes=4<<20`, `RegexMatchTimeout=25ms`, `RegexAggregateWallBudget=250ms`) and a shared `EvaluationBudget` over the entire media item (`internal/compat/chapterremove/program.go::MatchTitleWithBudget`). The supported surface is the bounded Python-compatible subset translated by `internal/compat/pyregex`: anchors, character classes, repetition, alternation, lookahead and lookbehind, and bounded backreferences. Other Python regular expression features remain unsupported. Template arithmetic and Unicode conversions are limited to the bounded corpus; arbitrary template code evaluation and remaining CLI format-selection surfaces remain explicitly unsupported.
 "
   - id: downloader.protocol_matrix
     name: Alpha downloader and protocol matrix
@@ -2687,7 +2687,7 @@ capabilities:
       - conformance/compatibility/phase2/download_sections.yaml
       - docs/YOUTUBE_MEDIA_SECTIONS_EVIDENCE.md
     owner: media
-    known_deviation: Section downloading delegates to ffmpeg with -ss/-t (and -map for separate A/V inputs) mirroring pinned FFmpegFD; native fragment trimming is deferred, so HLS/DASH partial downloads use ffmpeg as upstream does. A parallel or direct downloader that cannot be safely delegated to ffmpeg (notably credential-isolated headers/cookies or unsupported protocols) fails closed before producing output rather than silently downloading the full source or weakening isolation. Deep parser bounds cap specification count, byte size, timestamp length, and the Cartesian product of output plans and sections. Chapter-title regular expressions, negative timestamps relative to duration, and arbitrary upstream range generators are deferred; partial live streams are not supported unless deterministically selected. A lone extractor-driven section retains ordinary destination behavior and is not routed through a special chapter output template.
+    known_deviation: Section downloading delegates to ffmpeg with -ss/-t (and -map for separate A/V inputs) mirroring pinned FFmpegFD; native fragment trimming is unsupported, so HLS/DASH partial downloads use ffmpeg as upstream does. A parallel or direct downloader that cannot be safely delegated to ffmpeg (notably credential-isolated headers/cookies or unsupported protocols) fails closed before producing output rather than silently downloading the full source or weakening isolation. Deep parser bounds cap specification count, byte size, timestamp length, and the Cartesian product of output plans and sections. Chapter-title regular expressions, negative timestamps relative to duration, and arbitrary upstream range generators are outside the current claim; partial live streams are not supported unless deterministically selected. A lone extractor-driven section retains ordinary destination behavior and is not routed through a special chapter output template.
   - id: compat.format_selector
     name: Pinned format-selector closure
     phase: 1
@@ -2753,7 +2753,7 @@ capabilities:
       - docs/FORMAT_SELECTOR_PARITY.md
       - docs/FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md
     owner: core
-    known_deviation: "Parser, filters, bounded Python-regex translation, evaluator ordering, defaults, multistream suppression, merged metadata, injected availability, retained N-track execution, per-output lifecycle, and CLI format-selection controls match the committed pinned corpus. Pinned sorter parity is tracked separately by compat.format_sorter. The only retained selector differences are documented bounded-contract safety choices: defensive copying, malformed-metadata rejection, discarded-punctuation rejection, and collection/evaluation limits. PR 11's forward-upstream delta is explicitly outside this pinned claim."
+    known_deviation: "Parser, filters, bounded Python-regex translation, evaluator ordering, defaults, multistream suppression, merged metadata, injected availability, retained N-track execution, per-output lifecycle, and CLI format-selection controls match the committed pinned corpus. Pinned sorter parity is tracked separately by compat.format_sorter. The only retained selector differences are documented bounded-contract safety choices: defensive copying, malformed-metadata rejection, discarded-punctuation rejection, and collection/evaluation limits. The current-upstream delta is explicitly outside this pinned claim."
 
   - id: compat.format_sorter
     name: Pinned FormatSorter parity
@@ -2793,7 +2793,7 @@ capabilities:
       - internal/compat.TestPinnedCompatibilityCorpus
       - conformance/compatibility/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus and the output types currently produced by the port. Annotation, chapter, and other unimplemented artifact types remain outside this claim.
+    known_deviation: Compatibility is claimed only for the checked-in syntax corpus and the output types currently produced by the port. Annotation, chapter, and other unimplemented artifact types remain outside this claim.
 
   - id: compat.output_paths
     name: Per-type output paths
@@ -3036,7 +3036,7 @@ capabilities:
       not claim every upstream DMS host or response variant.
 
   - id: extractor.phase2_breadth
-    name: Phase 2 representative extractor breadth
+    name: Representative extractor breadth
     phase: 2
     compatibility_target: Register at least 25 native representative extractors spanning every declared major capability class.
     status: compatible
@@ -3091,12 +3091,11 @@ capabilities:
     known_deviation: Compatibility is limited to the documented deterministic corpus. Legacy provider APIs, volatile authenticated bootstrap flows, general article/embed matrices, and some password/SSO/CDN fallbacks remain explicit per-family provenance deviations; no extractor silently invokes Python or an unregistered fallback.
 
   - id: extractor.family_breadth_priority_100
-    name: Extractor family breadth priority-100
+    name: Extractor family breadth evidence
     phase: 2
     compatibility_target: Cumulatively register at least 50 distinct non-YouTube family/adapter extractor keys with fixture-backed success or adapter→backend re-entry evidence, at least 8 shared backends, and at least 100 attributable success URL shapes since baseline 172a718c.
     status: compatible
     evidence:
-      - docs/EXTRACTOR_BREADTH_PRIORITY_100_LEDGER.md
       - docs/EXTRACTOR_BREADTH_PRIORITY_100_EVIDENCE.md
       - docs/EXTRACTOR_FAMILY_BREADTH_WAVE1_EVIDENCE.md
       - docs/EXTRACTOR_BRIGHTCOVE_ADAPTERS_WAVE2_EVIDENCE.md
@@ -3145,7 +3144,7 @@ capabilities:
       - engine.TestProductRegistryIncludesIntegratedExtractors
     owner: extractors
     known_deviation: >-
-      Stretch target of 75 keys is not claimed. Live-service compatibility is not asserted from synthetic fixtures alone. Heise YouTube-only pages and Craftsy cookie-gated full-class catalogs remain unsupported/fail-closed. Shape inventory enforces canonical route identities (no Arc single/multi double-count, no hostname-alias padding). Laracasts does not smuggle a laracasts.com Vimeo Referer; ABCOTVS does not implement publishedKey selection; BuzzFeed Facebook embeds are bare URL entries without an explicit facebook ExtractorKey. Wave 1 JW Platform adapters (Bundesliga, Business Insider, DBTV, Hollywood Reporter, Iltalehti, Le Figaro Video Embed, Mirror.co.uk, Outside TV, The Intercept) deliberately omit upstream-only fields that `extractor.Entry` does not yet expose: DBTV, Mirror.co.uk, and The Intercept `display_id`; The Intercept `description` and `comment_count`; Le Figaro `description`. The Hollywood Reporter YouTube fixture uses the repository's synthetic `fixture0001` id rather than a real YouTube identifier.
+      Stretch target of 75 keys is not claimed. Live-service compatibility is not asserted from synthetic fixtures alone. Heise YouTube-only pages and Craftsy cookie-gated full-class catalogs remain unsupported/fail-closed. Shape inventory enforces canonical route identities (no Arc single/multi double-count, no hostname-alias padding). Laracasts does not smuggle a laracasts.com Vimeo Referer; ABCOTVS does not implement publishedKey selection; BuzzFeed Facebook embeds are bare URL entries without an explicit facebook ExtractorKey. The listed JW Platform adapters (Bundesliga, Business Insider, DBTV, Hollywood Reporter, Iltalehti, Le Figaro Video Embed, Mirror.co.uk, Outside TV, The Intercept) deliberately omit upstream-only fields that `extractor.Entry` does not yet expose: DBTV, Mirror.co.uk, and The Intercept `display_id`; The Intercept `description` and `comment_count`; Le Figaro `description`. The Hollywood Reporter YouTube fixture uses the repository's synthetic `fixture0001` id rather than a real YouTube identifier.
 
   - id: verification.g2_security
     name: Gate G2 security and fallback audit
@@ -3165,9 +3164,8 @@ capabilities:
       - .github/workflows/ci.yml#vulnerability-audit
       - docs/P2_SECURITY_REVIEW.md
       - docs/P2_FALLBACK_INVENTORY.md
-      - docs/PHASE_2_EXIT_REVIEW.md
     owner: security
-    known_deviation: No critical finding remains. Residual medium and lower risks, fail-closed platform limitations, public-distribution legal blockers, and the external Windows native-run evidence blocker are enumerated in the Phase 2 security and exit reviews.
+    known_deviation: No critical finding remains. Residual medium and lower risks, fail-closed platform limitations, and unavailable native Windows evidence are enumerated in the security review.
 
   - id: plugins.rpc
     name: Out-of-process plugin protocol
@@ -3188,7 +3186,7 @@ capabilities:
       - conformance/plugins/PROVENANCE.md
       - docs/P1_PLUGIN_PROTOCOL.md
     owner: runtime
-    known_deviation: The protocol spike is explicit-call only. Automatic discovery, signing/update policy, a secret-handle channel, and portable OS-level address-space/process-count sandboxing remain Phase 2 work.
+    known_deviation: The protocol boundary is explicit-call only. Automatic discovery, signing/update policy, a secret-handle channel, and portable OS-level address-space/process-count sandboxing are unsupported.
 
   - id: plugins.wasm
     name: WASM plugin experiment
@@ -3453,9 +3451,9 @@ capabilities:
       - conformance/extractors/public/bilibili/success.html
     owner: core
     known_deviation: >-
-      Thirteen registered classes cover the bounded anonymous public routes listed in the provenance matrix. Cheese is deferred because paid-course playability is not an anonymous public contract; SpaceVideo, SpaceAudio, and Search are WBI-dependent; Live is deferred because HLS/live exact-byte proof is not retained; Favorites, Watchlater, and Playlist remain authentication/private scope. All retained page and API reads require credential-isolated no-redirect transport, with fixed scoped referers only through the dedicated referer interface. Emitted domestic and international media formats are role-host validated and credential-isolated. Product evidence proves exact-byte domestic, Bangumi, audio, international, transparent Player, and playlist child reentry behavior, plus entered cancellation rollback and secret-safe status mapping. Subtitle extraction, live/HLS fragments, paid/DRM, auth/private, geo-only, and WBI behavior are not claimed.
+      Thirteen registered classes cover the bounded anonymous public routes listed in the provenance matrix. Cheese is unsupported because paid-course playability is not an anonymous public contract; SpaceVideo, SpaceAudio, and Search are WBI-dependent; Live is unsupported because HLS/live exact-byte proof is not retained; Favorites, Watchlater, and Playlist remain authentication/private scope. All retained page and API reads require credential-isolated no-redirect transport, with fixed scoped referers only through the dedicated referer interface. Emitted domestic and international media formats are role-host validated and credential-isolated. Product evidence proves exact-byte domestic, Bangumi, audio, international, transparent Player, and playlist child reentry behavior, plus entered cancellation rollback and secret-safe status mapping. Subtitle extraction, live/HLS fragments, paid/DRM, auth/private, geo-only, and WBI behavior are not claimed.
   - id: cli.flag_wave1
-    name: Wave 1 CLI flag parity — overwrite and playlist-vs-single controls
+    name: CLI overwrite and playlist-vs-single controls
     phase: 3
     compatibility_target: Wire --no-overwrites, --no-playlist, and --yes-playlist from the CLI FlagSet to the Request struct with correct last-wins semantics. --no-overwrites is the inverse of --force-overwrites. --no-playlist/--yes-playlist set Request.Playlist.Disabled (distinct from RelatedFiles.NoPlaylist). The Disabled signal is passed to extractor.Request.NoPlaylist; all currently registered _yes_playlist-style ambiguity lanes (YouTube watch, Dailymotion video-context, and Bilibili anthology URLs) honor it, while explicit playlist-only routes remain playlists.
     status: compatible
@@ -3483,7 +3481,7 @@ capabilities:
     depends_on:
       - foundation.cli
   - id: cli.flag_wave2
-    name: Wave 2 CLI flag parity — filename and filesystem controls
+    name: CLI filename and filesystem controls
     phase: 3
     compatibility_target: Wire --restrict-filenames, --windows-filenames, --trim-filenames, --continue/--no-continue, --part/--no-part, --mtime/--no-mtime, and --ffmpeg-location from the CLI FlagSet to Request.Filesystem with correct last-wins semantics. Filename options flow into output-template resolution. Continue/part flags control direct downloader behavior. Mtime is applied from timestamp/upload_date metadata. Ffmpeg location propagates through ffmpeg discovery for merge/postprocess stages.
     status: compatible
@@ -3503,7 +3501,7 @@ capabilities:
       - foundation.cli
       - cli.flag_wave1
   - id: cli.flag_wave3
-    name: Wave 3 CLI flag parity — batch inputs and format discovery
+    name: CLI batch inputs and format discovery
     phase: 3
     compatibility_target: >-
       Wire --batch-file/-a/--no-batch-file and --list-formats/-F through the
@@ -3599,7 +3597,7 @@ capabilities:
 
 
   - id: cli.filtering_stop_wave
-    name: Wave 4 CLI flag parity — filtering and stopping conditions
+    name: CLI filtering and stopping conditions
     phase: 3
     compatibility_target: >-
       Wire the simple metadata filters (--match-title, --reject-title,

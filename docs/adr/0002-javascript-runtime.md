@@ -1,52 +1,31 @@
 # ADR 0002: JavaScript runtime isolation
 
-Status: Accepted for the Phase 1 pilot
+Status: Accepted
 
 ## Context
 
 Modern extraction, especially YouTube challenge handling, requires JavaScript.
-The implementation must not depend on Python, and untrusted or rapidly changing
-scripts must not share unrestricted memory or process privileges with the CLI.
+The implementation must not depend on Python, and challenge programs must not
+share unrestricted memory or process privileges with the CLI.
 
 ## Decision
 
-JavaScript execution will use a versioned request/response boundary implemented
-by a supervised helper process. The first experiment will compare a pure-Go
-ECMAScript engine with a QuickJS-family engine against an EJS/challenge corpus.
-Engine choice is deliberately behind the process protocol.
+JavaScript executes through a versioned request/response protocol in a
+supervised helper process. The helper uses the reviewed pure-Go goja engine and
+pinned EJS assets. Engine details remain behind the process protocol rather
+than becoming extractor API.
 
-Every request receives wall-clock, memory, source-size, output-size, and module
-allowlist limits. The helper has no ambient network or filesystem access. It is
-terminated on context cancellation, malformed protocol data, or budget breach.
-Chromium may be a separate explicit browser workflow; it is not the default JS
-evaluator.
+Every request has wall-clock, memory, source-size, output-size, and module
+allowlist limits. The helper has no ambient network or filesystem API. It is
+terminated on cancellation, malformed protocol data, or budget breach. The EJS
+assets are checked against the pinned SHA3-512 allowlist at startup.
+
+Chromium is a separate explicit browser workflow and is not the default
+JavaScript evaluator.
 
 ## Consequences
 
-The product remains Python-free and engine replacement does not alter extractor
-interfaces. Process startup and distribution cost are accepted for isolation.
-Phase 1 must prove EJS execution and deterministic cancellation before the
-runtime is used by a production extractor.
-
-## Phase 1 candidate review (2026-07-17)
-
-The first engine implementation pins `dop251/goja` revision
-`cfe4039cb6d77b297d8b637182f774fa4a54b7d5` behind the helper protocol. This is
-the newest reviewed revision before its minimum toolchain changed from Go 1.20
-to Go 1.25. It is pure Go, exposes explicit interruption, and does not provide
-ambient browser or Node APIs unless the host adds them. Its incomplete modern
-ECMAScript coverage is a material risk and must be tested against the pinned
-challenge corpus rather than assumed compatible.
-
-QuickJS/QuickJS-NG remains the fallback experiment because upstream EJS supports
-it directly, but it adds a separately distributed native executable and has
-temporary-file and version-performance concerns. The helper protocol prevents
-either choice from becoming an extractor API commitment.
-
-The pilot result selects the pinned pure-Go goja engine. It executes the exact
-EJS 0.8.0 core/library bundles required by the reference yt-dlp commit and
-passes the offline AST-extraction, n-challenge, and signature corpus inside the
-supervised helper. The official EJS assets are verified against yt-dlp's
-SHA3-512 allowlist at startup. QuickJS remains a bounded fallback if future
-player variants exceed goja's ECMAScript coverage; no extractor API changes
-would be required.
+The product remains Python-free, helper failures remain outside host operation
+memory, and JavaScript engine details do not alter extractor contracts. The
+native helper and its exact assets remain an explicit distribution and trust
+boundary.

@@ -1,4 +1,4 @@
-# Phase 3 offline pack catalog
+# Offline pack catalog
 
 The v1 catalog is a bounded canonical JSON document signed with a
 domain-separated Ed25519 signature. It provides exact package/version to local

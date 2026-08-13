@@ -1,4 +1,4 @@
-# Phase 3 Shadow Corpus Provenance
+# Shadow corpus provenance
 
 - Reference context: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
 - Capture date: 2026-07-19.

@@ -6,7 +6,7 @@ no captured credential, site response, executable, or Python-derived byte
 sequence.
 
 The grammar expectations were derived from the read-only pinned yt-dlp checkout
-at `/Users/tejas/projects/yt-dlp-reference`, commit
+at `/path/to/yt-dlp-reference`, commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`, specifically
 `yt_dlp/extractor/common.py` netrc lookup behavior, `yt_dlp/utils/_utils.py`
 `netrc_from_content`, and `test/testdata/netrc/netrc`. Python's standard-library

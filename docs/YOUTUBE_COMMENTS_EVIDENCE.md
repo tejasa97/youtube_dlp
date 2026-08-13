@@ -56,8 +56,7 @@ The checked-in synthetic corpus covers:
   incomplete comment responses;
 - disabled comments, authentication and rate-limit categorization,
   cancellation, malformed JSON, oversized text, and parser fuzzing; and
-- deferred product integration, public-option preflight, and CLI option
-  parsing.
+- opt-in product integration, public-option preflight, and CLI option parsing.
 
 The primary automated evidence is:
 
@@ -102,5 +101,4 @@ This evidence does not claim full upstream YouTube-comment parity:
 - renderer compatibility is limited to the deterministic legacy and modern
   shapes named above.
 
-These boundaries keep the first slice deterministic and resource-bounded.
-They are follow-up work, not implied compatibility.
+These boundaries are outside the current compatibility claim.

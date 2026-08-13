@@ -1,6 +1,6 @@
 # YouTube Clips integration evidence
 
-Status: implemented in PR5 (YouTube Clips via transparent source re-entry).
+Status: implemented (YouTube Clips via transparent source re-entry).
 
 ## Reference
 
@@ -15,8 +15,8 @@ Pinned Python reference: `yt-dlp/yt-dlp` at commit `aefce1eea4d0b6bab1ec2bd3beff
 
 ## Design
 
-PR5 builds on PR3 (bounded `ytInitialData` watch metadata) and PR4 (generic media-section
-consumer). It adds a `codex/youtube-clips` extractor layer that:
+The YouTube Clips implementation uses bounded `ytInitialData` watch metadata
+and the generic media-section consumer. The extractor layer:
 
 - Routes `/clip/<id>` on standard youtube.com hosts (`www`, root, `m.`) at the `Extract`
   boundary, before `parseYouTubeTarget`, so clip ids (which are not 11-char video ids) never
@@ -34,12 +34,12 @@ consumer). It adds a `codex/youtube-clips` extractor layer that:
 
 - Source title, description, channel, formats, and other metadata remain authoritative; only
   the clip identity fields are overlaid.
-- PR4's generic section consumer reads the overlaid `section_start`/`section_end` to derive the
+- The generic section consumer reads the overlaid `section_start`/`section_end` to derive the
   clip duration and produce a sectioned artifact named by the clip id.
 - Malformed source ids, hostile URLs (userinfo, ports, encoded separators, lookalike hosts),
   and missing/over-budget timing fail closed before any output mutation.
 
-## Deferred (documented)
+## Outside the current claim
 
 - Live-clip and authenticated clip surfaces beyond the existing boundaries.
 - Upstream's `FIXME` acknowledging that clip-local metadata (distinct from the source video)
@@ -49,6 +49,6 @@ consumer). It adds a `codex/youtube-clips` extractor layer that:
 
 - Extractor unit tests (clip-id recognition, bounded parse, timing validation, overlay,
   hostile-URL rejection) and the transparent re-entry integration test.
-- Full-clip product E2E: synthetic clip page → source watch page → format selection → PR4
+- Full-clip product E2E: synthetic clip page → source watch page → format selection →
   section download → clipped artifact carrying clip id and `media_type: clip`.
 - `go test ./...`, vet, tidy, diff-check, paritycheck, and cross-builds.

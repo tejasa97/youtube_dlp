@@ -1,4 +1,4 @@
-// shadowcheck compares two bounded Phase 3 semantic observations locally.
+// shadowcheck compares two bounded semantic observations locally.
 package main
 
 import (

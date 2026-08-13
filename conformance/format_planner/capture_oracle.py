@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""PR 5 planner conformance oracle generator.
+"""Planner conformance oracle generator.
 
 Generates internal/format/testdata/planner_conformance.json using the pinned
 Python yt-dlp runtime. Run with:
 
-    /Users/tejas/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \\
+    python3 \\
         conformance/format_planner/capture_oracle.py \\
-        --reference /Users/tejas/projects/yt-dlp-reference \\
+        --reference /path/to/yt-dlp-reference \\
         --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 \\
         --output internal/format/testdata/planner_conformance.json
 
@@ -293,7 +293,7 @@ def main():
     cases.append({"id": "compatible_extension.cases", "cases": compat_dicts})
 
     output = {
-        "_comment": "PR 5 planner conformance fixture.",
+        "_comment": "Planner conformance fixture.",
         "schema_version": 1,
         "reference": {
             "repository": "https://github.com/yt-dlp/yt-dlp",

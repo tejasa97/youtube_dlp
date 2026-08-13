@@ -1,6 +1,6 @@
-# Phase 2 trust and security policy
+# Trust and security policy
 
-Status: Gate G2 integration policy
+Status: current integration policy
 Scope: plugin discovery, signed packs, updater metadata, release artifacts
 
 ## Fail-closed boundary
@@ -36,7 +36,7 @@ it never blesses an unverified backup.
 
 ## Signing roles
 
-Phase 2 tests use deterministic, repository-scoped Ed25519 keys that are
+Tests use deterministic, repository-scoped Ed25519 keys that are
 clearly marked non-production. The repository does not create, choose, or
 store a production private key.
 
@@ -65,10 +65,9 @@ verified version.
 
 Plugins receive a minimal allowlisted environment and structured arguments.
 Credentials are not placed in argv, environment variables, ordinary metadata,
-stderr, or diagnostic events. Where a future provider requires a secret, the
+stderr, or diagnostic events. Where a provider requires a secret, the
 host passes a short-lived opaque handle through a dedicated channel and applies
-scope, expiry, operation, and use-count limits. Phase 2 code must reject a
-declared secret capability if that handle channel is unavailable.
+scope, expiry, operation, and use-count limits. The host rejects a declared secret capability if that handle channel is unavailable.
 
 ## Isolation
 

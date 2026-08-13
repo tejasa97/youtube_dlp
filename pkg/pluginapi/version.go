@@ -1,7 +1,7 @@
 package pluginapi
 
 // Version constructs the ABI's compact wire version. Version(1, 0) retains
-// the Phase 1 value 1; later minors use the upper/lower 16-bit representation.
+// the original wire value 1; nonzero minors use the upper/lower 16-bit representation.
 func Version(major, minor uint16) uint32 {
 	if minor == 0 {
 		return uint32(major)

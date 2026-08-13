@@ -1,5 +1,5 @@
 {
-  "_comment": "PR 5 planner conformance fixture.",
+  "_comment": "Planner conformance fixture.",
   "cases": [
     {
       "formats": [

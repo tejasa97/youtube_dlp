@@ -47,4 +47,4 @@ production media URLs.
 - Public episode pages only; show catalog URLs without `i` remain unsupported.
 - No browser impersonation, credentials, or new redirect transport capability.
 - Primary-owned registry wiring, parity manifest entries, and supported-sites
-  documentation are intentionally left for a follow-up integration change.
+  documentation are outside the current claim.

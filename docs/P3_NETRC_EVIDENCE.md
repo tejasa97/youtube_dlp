@@ -1,4 +1,4 @@
-# Phase 3 native netrc evidence
+# Native netrc evidence
 
 The native package provides bounded in-memory parsing, secure file loading,
 and context-aware lookup without Python, a shell, or an external command.

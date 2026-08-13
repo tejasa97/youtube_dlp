@@ -1,4 +1,4 @@
-// Package hls parses and downloads the Phase 1 HLS pilot subset.
+// Package hls parses and downloads the supported HLS subset.
 package hls
 
 import (

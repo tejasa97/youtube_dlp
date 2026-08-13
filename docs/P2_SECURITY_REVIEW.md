@@ -1,4 +1,4 @@
-# Phase 2 Gate G2 security review
+# Security review
 
 Review date: 2026-07-18
 
@@ -8,7 +8,7 @@ and native extractor inputs.
 
 ## Decision
 
-No open critical security finding remains in the Phase 2 claimed surface.
+No open critical security finding remains in the reviewed surface.
 Capabilities that cannot establish their required platform guarantee fail
 closed and remain explicit deviations; they do not silently select a weaker
 implementation. The deterministic signing keys in tests and fixtures are not
@@ -39,20 +39,19 @@ vulnerability.
 
 ## Residual finding register
 
-| ID | Severity | Residual risk and containment | Owner / milestone |
-| --- | --- | --- | --- |
-| G2-S01 | Medium | Windows health checking starts a process before assigning it to a Job Object. A hostile signed artifact could try to spawn and detach a child in that narrow interval. Artifact threshold trust and health rollback limit reach; this is not treated as complete hostile-code sandboxing. | release / Phase 3 suspended-process launcher evaluation |
-| G2-S02 | Medium | Portable Go APIs cannot prove Windows owner/DACL policy for updater roots or provide POSIX directory-fsync semantics. Reparse-point roots are rejected and file replacement is write-through, but deployment must provision a private per-user root. | release / Phase 3 Windows installer policy |
-| G2-S03 | Medium | macOS native plugin plans now fail closed: the deprecated `sandbox-exec` generator was removed rather than retained as a weaker adapter. A maintained kernel confinement implementation is still required before macOS native plugins can run. | runtime / maintained macOS confinement decision |
-| G2-S04 | Low | `cmd/ytdlp-release` assumes its existing output directory and parent are controlled by the release job. It rejects a symlink at validation and publishes each file exclusively, but does not claim protection from an actor able to replace the directory concurrently. Artifacts contain no secrets and the CI workspace is single-owner. | release / before multi-tenant release workers |
-| G2-S05 | Informational | Signed-pack install/rollback/remove is unavailable on Windows because equivalent owner/ACL, lock, and atomic-publication evidence is absent. Verification remains portable and lifecycle operations fail closed. | runtime / Phase 3 Windows pack installer |
+| ID | Severity | Residual risk and containment |
+| --- | --- | --- |
+| G2-S01 | Medium | Windows health checking starts a process before assigning it to a Job Object. A hostile signed artifact could try to spawn and detach a child in that narrow interval. Artifact threshold trust and health rollback limit reach; this is not treated as complete hostile-code sandboxing. |
+| G2-S02 | Medium | Portable Go APIs cannot prove Windows owner/DACL policy for updater roots or provide POSIX directory-fsync semantics. Reparse-point roots are rejected and file replacement is write-through, but deployment must provision a private per-user root. |
+| G2-S03 | Medium | macOS native plugins are unavailable. The deprecated `sandbox-exec` generator was removed rather than retained as a weaker adapter. |
+| G2-S04 | Low | `cmd/ytdlp-release` assumes its existing output directory and parent are controlled by the release job. It rejects a symlink at validation and publishes each file exclusively, but does not claim protection from an actor able to replace the directory concurrently. Artifacts contain no secrets and the CI workspace is single-owner. |
+| G2-S05 | Informational | Signed-pack install, rollback, and removal are unavailable on Windows because equivalent owner/ACL, lock, and atomic-publication evidence is absent. Verification remains portable and lifecycle operations fail closed. |
 
-## Operational and legal blockers
+## Operational and legal boundaries
 
 Production root custody, signer identities, quorum, rotation, transparency,
 artifact transport, and publishing credentials are intentionally external
 inputs. The repository neither generates nor selects them. The project is now
 licensed under Apache License 2.0; third-party notice obligations remain
 documented in `THIRD_PARTY_NOTICES.md`. The former fhttp licensing issue was
-resolved by replacing the dependency. Operational custody and publishing
-approval must still be resolved before any public binary release.
+resolved by replacing the dependency. No public binary release is endorsed by this record.

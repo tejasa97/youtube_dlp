@@ -1,9 +1,9 @@
 # Bounded embedded info JSON
 
-This branch adds `--embed-info-json` and `--no-embed-info-json` as a typed,
+The CLI provides `--embed-info-json` and `--no-embed-info-json` as a typed,
 transactional post-processing stage.
 
-The pinned reference is `/Users/tejas/projects/yt-dlp-reference` at
+The pinned reference is `/path/to/yt-dlp-reference` at
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`, read only. Its
 `yt_dlp/postprocessor/ffmpeg.py` `FFmpegMetadataPP` stage attaches `info.json`
 only to `mkv`/`mka`, replaces an existing JSON attachment, and labels the
@@ -30,5 +30,5 @@ stage to verify replacement, cancels after the post-process stage is entered,
 and forces a later thumbnail failure to verify destination restoration,
 temporary cleanup, and archive non-publication.
 
-This branch does not include chapter splitting, playlist concatenation, xattrs,
-or policy-driven fixups. Those are separate ordered stack boundaries.
+Embedded-info-JSON handling is independent from chapter splitting, playlist
+concatenation, xattrs, and policy-driven fixups.

@@ -1,8 +1,8 @@
-# Phase 2 public Go API compatibility policy
+# Public Go API compatibility policy
 
 ## Contract
 
-`pkg/ytdlp` is the supported embedding surface. Phase 2 begins at API version
+`pkg/ytdlp` is the supported embedding surface. The public API version is
 `v1alpha1`; internal packages remain implementation details. The behavioral
 fixture baseline is `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`,
 but the reference checkout is not a product or build dependency.
@@ -61,7 +61,7 @@ Every public change must identify:
 2. deterministic success, failure, cancellation and serialization evidence;
 3. persisted-data migration impact;
 4. security and secret-redaction impact;
-5. known deviations and removal/deprecation milestone.
+5. known deviations and current deprecation status.
 
 The CLI builds on this API but may expose a wider compatibility surface. CLI
 parsing, configuration syntax and terminal rendering do not leak into the

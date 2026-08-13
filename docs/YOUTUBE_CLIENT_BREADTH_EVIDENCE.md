@@ -6,8 +6,7 @@ Pinned reference: yt-dlp `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 `_DEFAULT_PREMIUM_CLIENTS`).
 
 SABR references in this document describe isolation invariants for the retained
-experimental implementation. They do not make SABR a parity target or roadmap
-workstream.
+experimental implementation. They do not make SABR a parity target or supported product capability.
 
 ## Profiles
 

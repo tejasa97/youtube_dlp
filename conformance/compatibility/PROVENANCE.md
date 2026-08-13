@@ -10,9 +10,9 @@
   runtime is included.
 - Sanitization: all metadata and URLs are synthetic and use reserved example
   values.
-- Purpose: define the exact Phase 1 compatibility-parser pilot boundary. It is
+- Purpose: define the exact compatibility-parser boundary. It is
   not evidence for syntax outside the checked-in expressions.
 
-The corpus is evaluated by both native Go parsers in one golden test. Future
-reference-runtime captures must add their exact command line and environment to
-this file or a fixture-specific provenance record.
+The corpus is evaluated by both native Go parsers in one golden test. A
+reference-runtime capture is valid only when its exact command line and
+environment are recorded here or in fixture-specific provenance.

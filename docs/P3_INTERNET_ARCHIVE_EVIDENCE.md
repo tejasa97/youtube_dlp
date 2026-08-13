@@ -1,4 +1,4 @@
-# Phase 3 Internet Archive extractor evidence
+# Internet Archive extractor evidence
 
 The native extractor accepts `archive.org/details/{identifier}` and
 `archive.org/embed/{identifier}`, with an optional safe item-relative media

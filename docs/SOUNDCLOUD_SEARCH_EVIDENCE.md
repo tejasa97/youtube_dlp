@@ -26,12 +26,9 @@ Only explicit `kind:"track"` entries with a positive stable ID, non-empty title,
 
 `soundcloud_search_test.go` loads every fixture and checks route policy, count grammar/cap, lazy first/continuation requests, exact method/path/query/client-ID/bootstrap contract, real isolated-request capability selection, mixed filtering (including a track-shaped user), malformed JSON/shape/service error, auth/unavailable/network categories, initial and continuation failures, pre- and in-flight cancellation, continuation origin/query/replay rejection, exact four-request empty-page ceiling, bounds, and two full independent iterations. Fuzz targets assert successful targets remain bounded/canonical and successful entries retain explicit track kind, canonical SoundCloud URLs, stable IDs, extractor key, and non-zero required fields.
 
-## Primary integration requirements
+## Product integration
 
-The primary owner must, separately:
-
-1. Register `NewSoundCloudSearch()` in the product extractor registry with the intended routing priority (before generic handling and without displacing normal SoundCloud track/set routes).
-2. Add its focused tests/fuzz targets and this evidence corpus to the parity manifest/catalog only after registration lands.
-3. Surface the documented `scsearchall` cap of 200 in user-facing capability documentation, rather than claiming upstream's unbounded `all` behavior.
-
-No registry, client, manifest, or existing SoundCloud files were changed by this increment.
+`NewSoundCloudSearch()` is registered before generic handling without
+displacing normal SoundCloud track and set routes. Its focused tests, fuzz
+targets, and evidence corpus are listed in the parity manifest. The
+`scsearchall` behavior is explicitly capped at 200 results.

@@ -114,7 +114,7 @@ func validateDirectSessionOutput(request Request, plans []mediaformat.OutputPlan
 		request.Subtitles.WriteManual || request.Subtitles.WriteAutomatic || request.Subtitles.Embed || request.RelatedFiles.WriteInfoJSON || request.RelatedFiles.WriteDescription ||
 		request.RelatedFiles.WriteLink || request.RelatedFiles.WriteURLLink || request.RelatedFiles.WriteWeblocLink || request.RelatedFiles.WriteDesktopLink ||
 		request.SponsorBlock.Remove || request.Xattrs {
-		return fmt.Errorf("%w: session output sidecars and processing are deferred to a later engine phase", ErrUnsupported)
+		return fmt.Errorf("%w: resumable sessions do not support output sidecars or processing", ErrUnsupported)
 	}
 	return nil
 }

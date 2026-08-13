@@ -44,8 +44,9 @@ func buildSingleTrackMetadata(target *value.Object, source *value.Object) {
 }
 
 // buildMergedMetadata constructs the merged-format dictionary documented in
-// PR 5 §13. The output is owned by `target`; every value referenced inside
-// it is a defensive clone of the retained track objects so that subsequent
+// the pinned planner contract. The output is owned by `target`; every value
+// referenced inside it is a defensive clone of the retained track objects so
+// that subsequent
 // mutations of either side stay isolated.
 func buildMergedMetadata(target *value.Object, objects []*value.Object, prepared Prepared) {
 	requestedValues := make([]value.Value, 0, len(objects))

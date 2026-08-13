@@ -52,8 +52,7 @@ go run ./cmd/paritycheck
 
 - [Extractor discovery](../EXTRACTOR_DISCOVERY_EVIDENCE.md)
 - [Extractor routing controls](../EXTRACTOR_ROUTING_CONTROLS_EVIDENCE.md)
-- [Shared-backend residual adapters](../EXTRACTOR_SHARED_BACKEND_RESIDUAL_ADAPTERS_EVIDENCE.md)
-- [YouTube production-parity ledger](../YOUTUBE_PRODUCTION_PARITY_LEDGER.md)
+- [YouTube production-parity evidence](../YOUTUBE_PRODUCTION_PARITY_LEDGER.md)
 - [YouTube player metadata](../YOUTUBE_PLAYER_METADATA_EVIDENCE.md)
 - [YouTube format fidelity](../YOUTUBE_FORMAT_FIDELITY_EVIDENCE.md)
 - [YouTube captions and subtitles](../YOUTUBE_CAPTIONS_EVIDENCE.md)
@@ -71,7 +70,7 @@ go run ./cmd/paritycheck
 - [Updater and releases](../P2_UPDATER_RELEASES.md)
 - [Privacy-safe telemetry](../P3_TELEMETRY.md)
 - [Semantic review ledger](../P3_SEMANTIC_REVIEW_LEDGER.md)
-- [Independent audits](../history/README.md#independent-audits)
+- [Historical evidence](../history/README.md#retained-evidence)
 
 ## Fixture provenance
 
@@ -80,6 +79,5 @@ Fixture-specific provenance remains next to the data it governs under
 moved merely to shorten the documentation tree: collocation makes review,
 licensing, sanitization, and subsequent fixture changes auditable.
 
-Evidence documents whose names end in `_EVIDENCE.md`, phase lane reports named
-`P1_*`, `P2_*`, or `P3_*`, and records under `docs/audits/` retain their
-historical filenames so existing claim links remain stable.
+Some evidence documents retain historical `P1_*`, `P2_*`, or `P3_*` filenames
+so existing capability-manifest and documentation links remain stable.

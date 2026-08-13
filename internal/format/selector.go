@@ -41,8 +41,8 @@ type Term struct {
 }
 
 // Filter is a bounded [field op value] selector predicate.
-// Raw syntax ownership lives in unexported fields so PR 3 can compile the
-// original bracket body (including ?, quoting, and escapes) while retaining
+// Raw syntax ownership lives in unexported fields so the compiler can compile
+// the original bracket body (including ?, quoting, and escapes) while retaining
 // the exported legacy Field/Operator/Value surface for in-repo constructors.
 type Filter struct {
 	Field    string

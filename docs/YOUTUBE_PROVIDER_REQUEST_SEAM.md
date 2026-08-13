@@ -63,5 +63,5 @@ the broad facade, mixed extractor package, or non-YouTube providers.
 
 The generic bundle and registry remain parameterized by composition-owned
 configuration and request types. The compatibility catalog can bind
-`extractor.Request`; a future focused composition can bind `youtube.Request`
+`extractor.Request`; the focused composition binds `youtube.Request`
 without making SoundCloud or NHK options part of its dependency.

@@ -15,7 +15,7 @@ licensed under a three-clause BSD-style license and is not linked into the
 
 ## Test data
 
-The Phase 0 HTTP fixture server generates its media bytes and responses in Go.
+The HTTP fixture server generates its media bytes and responses in Go.
 No captured yt-dlp site response, media file, or upstream source code is included
 in the repository.
 

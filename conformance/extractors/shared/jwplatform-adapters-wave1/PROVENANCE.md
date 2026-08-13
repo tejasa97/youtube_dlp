@@ -1,4 +1,4 @@
-# JW Platform adapters wave 1 provenance
+# JW Platform adapter provenance
 
 Reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 

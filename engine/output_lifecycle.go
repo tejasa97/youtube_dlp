@@ -42,10 +42,9 @@ func wrapLifecycleError(op string, err error) error {
 
 // outputLifecycle holds the mutable per-output state for one OutputPlan.
 //
-// PR 8 introduces this internal type so that the complete media
-// lifecycle can run once per plan without sharing mutable state across
-// outputs. The public Result model is still defined by PR 7; this
-// struct never escapes the package.
+// This internal type lets the complete media lifecycle run once per plan
+// without sharing mutable state across outputs. The struct never escapes the
+// package; the public Result model remains the external contract.
 //
 // Fields:
 //
@@ -55,25 +54,25 @@ func wrapLifecycleError(op string, err error) error {
 //     affect the canonical extractor-owned info, the canonical
 //     prepared formats, OutputPlan.Metadata, or another lifecycle's
 //     Info.
-//   - Destination is the per-plan path resolved by PR 7's
-//     resolveOutputPlanDestinations. The plan destination is both
+//   - Destination is the per-plan path resolved by
+//     `resolveOutputPlanDestinations`. The plan destination is both
 //     the lifecycle's commit point and the path the executor writes
-//     to; PR 7 does not separate staging from publication.
+//     to; this lifecycle does not separate staging from publication.
 //   - MediaPath tracks the current media file for this output. It
 //     advances through postprocessor outputs and cuts.
 //   - FinalPath tracks the path the lifecycle reports as
 //     Result.Filename when Index == 0.
 //   - Sidecars collects this output's pre-download sidecars
 //     (thumbnails, related files, subtitles, converted subtitles,
-//     print files). The PR 7 result contract places sidecars before
+//     print files). The result contract places sidecars before
 //     media in Result.Artifacts.
 //   - MediaArtifacts collects this output's media artifacts in
 //     publication order. They are appended to Result.Artifacts after
 //     all sidecars.
 //   - Prints collects this output's print outputs in the order
 //     determined by the print stage sequence.
-//   - Bytes is this output's published byte total. PR 7's full
-//     result.Bytes is the sum of all published media plus sidecars
+//   - Bytes is this output's published byte total. The full Result.Bytes is
+//     the sum of all published media plus sidecars
 //     counted by their kind and the shared-ownership rule.
 type outputLifecycle struct {
 	Index       int
@@ -115,8 +114,8 @@ func newOutputLifecycleForPlan(
 }
 
 // outputPreDownloadArtifact captures a sidecar that the lifecycle
-// writes before any media publication. The slice order matches the
-// PR 7 authoritative order: thumbnails, related files, subtitles,
+// writes before any media publication. The authoritative order is
+// thumbnails, related files, subtitles,
 // converted subtitles, print files. Media follows after every plan's
 // pre-download sidecars.
 type outputPreDownloadArtifact struct {
@@ -130,7 +129,7 @@ type outputPreDownloadArtifact struct {
 // errors.Is.
 //
 // The transaction owns media publication and sidecar overwrite protection.
-// All filesystem writes for this output are routed through the active PR 7
+// All filesystem writes for this output are routed through the active
 // transaction or registered as transaction-owned files.
 func (operation *operation) executeOutputLifecycle(
 	ctx context.Context,
@@ -162,7 +161,7 @@ func (operation *operation) executeOutputLifecycle(
 // for the pre-download phases: PrintVideo, then PrintBeforeDL, then
 // download. PrintVideo and PrintBeforeDL match the existing
 // single-output flow exactly; the print file artifacts are appended
-// to lifecycle.Sidecars and registered with the PR 7 transaction.
+// to lifecycle.Sidecars and registered with the transaction.
 func (operation *operation) executeOutputLifecyclePhases(
 	ctx context.Context,
 	transaction *mediaTransaction,
@@ -189,7 +188,7 @@ func (operation *operation) executeOutputLifecyclePhases(
 
 // runLifecyclePreDownloadPrints emits PrintVideo and PrintBeforeDL for
 // this lifecycle with its own Info and destination. Print file
-// artifacts participate in the PR 7 transaction: each printed file
+// artifacts participate in the transaction: each printed file
 // is tracked by the transaction so rollback can clean up partially-written
 // print files or restore an append target.
 func (operation *operation) runLifecyclePreDownloadPrints(
@@ -251,9 +250,9 @@ func (operation *operation) runLifecyclePrintStage(
 	return nil
 }
 
-// runLifecycleDownload uses the PR 6 N-track executor
-// (downloadSelections) to materialize this output's media. The
-// transaction records the produced path so PR 7 rollback covers it on
+// runLifecycleDownload uses the N-track executor (`downloadSelections`) to
+// materialize this output's media. The transaction records the produced path
+// so rollback covers it on
 // failure.
 func (operation *operation) runLifecycleDownload(
 	ctx context.Context,
@@ -315,7 +314,7 @@ func (operation *operation) runLifecycleAfterPrints(
 
 // accountLifecycleArtifacts recomputes the lifecycle's byte total so
 // it reflects only the published artifacts owned by this output. The
-// final Result.Bytes is computed by PR 7's transaction using the
+// final Result.Bytes is computed by the transaction using the
 // authoritative artifact ordering (sidecars before media).
 //
 // Accounting is strict: every artifact the lifecycle registered must
@@ -344,7 +343,7 @@ func (operation *operation) accountLifecycleArtifacts(lifecycle *outputLifecycle
 // lifecycleResult aggregates one or more output lifecycles into the
 // fields the public Result exposes.
 //
-// Aggregation matches the PR 7 authoritative artifact ordering:
+// Aggregation matches the authoritative artifact ordering:
 //
 //  1. prints in plan order;
 //  2. Result.Artifacts = sidecars of plan 1, sidecars of plan 2, ...,
@@ -359,7 +358,7 @@ type lifecycleResult struct {
 }
 
 // aggregateLifecycles converts a slice of completed lifecycles into
-// the public Result payload, preserving the PR 7 artifact order.
+// the public Result payload, preserving the documented artifact order.
 func aggregateLifecycles(lifecycles []outputLifecycle) lifecycleResult {
 	result := lifecycleResult{}
 	for index := range lifecycles {
@@ -381,7 +380,7 @@ func aggregateLifecycles(lifecycles []outputLifecycle) lifecycleResult {
 // cleanLifecyclePath removes a single artifact path that this
 // lifecycle wrote but did not publish (for example, an intermediate
 // output replaced by a later step). Pre-existing files are never
-// removed by this helper; the PR 7 transaction guards that contract.
+// removed by this helper; the transaction guards that contract.
 func cleanLifecyclePath(path string) {
 	if path == "" {
 		return
@@ -533,8 +532,8 @@ func (operation *operation) executePlanLifecycle(
 		return finish()
 	}
 
-	// PR 7 protects overwrite targets before a producer mutates them. Media
-	// destinations were acquired as one set by processMedia; derived
+	// The transaction protects overwrite targets before a producer mutates them.
+	// Media destinations were acquired as one set by processMedia; derived
 	// postprocessor outputs are plan-specific and are protected here before the
 	// download/postprocessor chain starts.
 	postprocessorPaths, err := operation.postprocessorDestinations(lifecycle.Destination)

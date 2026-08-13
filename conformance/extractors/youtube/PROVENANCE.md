@@ -1,6 +1,6 @@
 # YouTube extractor pilot fixture
 
-This corpus is a synthetic, offline fixture for the Phase 1 YouTube video
+This corpus is a synthetic, offline fixture for the YouTube video
 extractor. It contains only structural data needed to exercise player-response
 parsing, direct and signature-cipher formats, `n` transformation, signature
 deciphering, HLS/DASH manifest exposure, and normalized metadata.
@@ -97,8 +97,7 @@ player response and resolves only a validated video ID through the existing
 video extractor. It does not retain a production channel page or redirect.
 
 The SABR fixture records below support maintenance of a retained experimental
-extension. SABR is excluded from project parity targets, release claims, and
-remaining-work estimates.
+extension. SABR is excluded from project parity and release claims.
 
 `sabr-watch.html`, `android-player.json`, and `android-vr-player.json` are synthetic regression fixtures
 for URL-less `serverAbrStreamingUrl` webpage responses and native-client format

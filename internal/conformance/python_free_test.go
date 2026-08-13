@@ -37,7 +37,7 @@ func TestProductionSourcesDoNotInvokePython(t *testing.T) {
 			if strings.Contains(text, `import "C"`) {
 				t.Errorf("%s imports cgo", path)
 			}
-			if strings.Contains(text, "yt-dlp-reference") || strings.Contains(text, "/Users/tejas/projects/yt-dlp-reference") {
+			if strings.Contains(text, "yt-dlp-reference") {
 				t.Errorf("%s embeds the read-only reference checkout in production code", path)
 			}
 			for _, pattern := range forbiddenPythonInvocation {

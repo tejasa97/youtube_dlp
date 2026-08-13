@@ -43,7 +43,7 @@ including language/format rules and `--skip-download`, is documented in
 - Subtitle listing, CLI conversion/embedding, and inline extractor-provided
   subtitle data remain outside the completed sidecar scope.
 - Authenticated/Premium client policy, live-chat captions, and caption renderer
-  variants outside `playerCaptionsTracklistRenderer` remain pending.
+  variants outside `playerCaptionsTracklistRenderer` are unsupported.
 - No built-in PO-token generator or Python fallback is introduced.
 
 All deterministic fixtures use artificial renderer data and inert token values.

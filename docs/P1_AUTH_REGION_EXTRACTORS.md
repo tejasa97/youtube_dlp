@@ -1,4 +1,4 @@
-# Phase 1 authenticated and regional extractor pilots
+# Authenticated and regional extractor evidence
 
 ## Synthetic authenticated gate
 

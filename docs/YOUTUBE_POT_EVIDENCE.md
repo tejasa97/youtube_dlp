@@ -43,7 +43,7 @@ promptly on cancellation; when the last waiter leaves, shared work is canceled
   errors and events, but exist in provider responses, request URLs, and cache
   entries as required for playback.
 - SABR/UMP is a retained experimental extension outside the parity target and
-  roadmap. Authenticated Innertube and renderer breadth remain separate
+  current scope. Authenticated Innertube and renderer breadth remain separate
   compatibility work. The `subs` context is now consumed by the bounded
   caption renderer documented in `YOUTUBE_CAPTIONS_EVIDENCE.md`.
 

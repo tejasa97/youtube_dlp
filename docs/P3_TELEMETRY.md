@@ -1,4 +1,4 @@
-# Phase 3 privacy-safe measurement
+# Privacy-safe measurement
 
 Status: implemented foundation
 
@@ -26,7 +26,7 @@ error string.
 Snapshots are timestamp-free, strictly decoded, deterministically ordered, and
 bounded by byte and cell limits. Merge is atomic. Overflow and counter
 saturation stay in the coverage denominator; a saturated calculation is marked
-inexact and cannot support Gate G3. `Coverage.BasisPoints` is the floor of
+inexact and cannot support an exact coverage claim. `Coverage.BasisPoints` is the floor of
 successful operations divided by all observations, including errors,
 unsupported inputs, fallbacks, and overflow.
 

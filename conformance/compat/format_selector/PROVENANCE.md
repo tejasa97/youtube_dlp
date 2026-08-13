@@ -38,7 +38,7 @@ regenerate oracles with a supported interpreter against the pinned checkout:
 
 ```bash
 python3 conformance/compat/format_selector/capture_oracle.py \
-  --reference /Users/tejas/projects/yt-dlp-reference \
+  --reference /path/to/yt-dlp-reference \
   --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 \
   --write
 
@@ -61,7 +61,7 @@ invoke either script or read the network.
 ## Upstream sources and exact order
 
 The committed expectations were transcribed from the pinned checkout at
-`/Users/tejas/projects/yt-dlp-reference`:
+`/path/to/yt-dlp-reference`:
 
 - `yt_dlp/YoutubeDL.py:2577-2651`: selector construction/evaluation, atom
   predicates, extension priority, filters, `all`, and merge behavior.
@@ -166,8 +166,8 @@ direct IDs; bare extensions such as `wmv`, `m4v`, `f4v`, `mpg`, `divx`, or
 
 ## Parser-parity safety decisions
 
-The PR 2 lexer and parser introduce deliberate deviations from the pinned
-Python tokenizer that fail closed rather than silently changing the requested
+The Go lexer and parser have deliberate deviations from the pinned Python
+tokenizer that fail closed rather than silently changing the requested
 selector:
 
 - Direct-format IDs that contain comment punctuation (`#`) are rejected. The

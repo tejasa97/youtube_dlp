@@ -4,18 +4,15 @@
 
 **Reference**: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (`yt_dlp/options.py`)
 
-**Go baseline**: `origin/main` at `be41e0d` (close queue selection and stopping parity)
-
 **Classification key**:
 
 | Status | Meaning |
 |--------|---------|
 | **present** | Flag is registered on the Go FlagSet and the behavior is wired |
-| **wire-only** | `Request`/options field exists, flag is missing from the CLI |
-| **needs-core** | Flag needs a new `Request` field or downstream behavior change |
-| **defer** | Needs a real subsystem (not a switch) — complex, deferred |
+| **partial** | Flag is registered, with a documented platform or behavior limit |
+| **API-only** | Behavior exists in the Go API but is not a CLI flag |
 | **go-only** | Go-specific extension, not a yt-dlp flag |
-| **parked** | Needs a behavior contract before registration |
+| **unsupported** | Behavior is not part of the current CLI contract |
 
 ---
 
@@ -25,9 +22,9 @@
 |--------|--------|-------|
 | `-h`, `--help` | present | Handled by `flag.ErrHelp`; returns 0 |
 | `--version` | present | `flags.Bool("version", ...)` |
-| `--update` / `-U` | defer | Update subsystem |
-| `--no-update` | defer | Update subsystem |
-| `--update-to` | defer | Update subsystem |
+| `--update` / `-U` | unsupported | Update subsystem |
+| `--no-update` | unsupported | Update subsystem |
+| `--update-to` | unsupported | Update subsystem |
 | `--ignore-errors` / `-i` | present | `flags.BoolFunc("ignore-errors", ...)` |
 | `--no-abort-on-error` | present | `flags.BoolFunc("no-abort-on-error", ...)` |
 | `--abort-on-error` | present | `flags.BoolFunc("abort-on-error", ...)` |
@@ -39,7 +36,7 @@
 | `--ignore-config` / `--no-config` | present | Config loader |
 | `--no-config-locations` | present | Config loader |
 | `--config-locations` | present | `flags.Var(&configLocations, "config-location", ...)` |
-| `--plugin-dirs` / `--no-plugin-dirs` | defer | Plugin subsystem |
+| `--plugin-dirs` / `--no-plugin-dirs` | unsupported | Plugin subsystem |
 ## Network Options
 
 | Option | Status | Notes |
@@ -48,20 +45,20 @@
 | `--socket-timeout` | present | `flags.Duration("socket-timeout", ...)` |
 | `--source-address` | present | Validated native/profile TCP source binding; programmatic source/family conflicts fail closed |
 | `--impersonate` | present | `flags.String("impersonate", ...)` |
-| `--list-impersonate-targets` | defer | Impersonation listing |
+| `--list-impersonate-targets` | unsupported | Impersonation listing |
 | `--force-ipv4` / `-4` | present | Native/profile TCP family policy; CLI options are last-wins |
 | `--force-ipv6` / `-6` | present | Native/profile TCP family policy; CLI options are last-wins |
-| `--enable-file-urls` | defer | File URL support |
+| `--enable-file-urls` | unsupported | File URL support |
 
 ## Geo-restriction
 
 | Option | Status | Notes |
 |--------|--------|-------|
-| `--geo-verification-proxy` | defer | Geo subsystem |
-| `--xff` | defer | Geo subsystem |
-| `--geo-bypass` / `--no-geo-bypass` | defer | Geo subsystem |
-| `--geo-bypass-country` | defer | Geo subsystem |
-| `--geo-bypass-ip-block` | defer | Geo subsystem |
+| `--geo-verification-proxy` | unsupported | Geo subsystem |
+| `--xff` | unsupported | Geo subsystem |
+| `--geo-bypass` / `--no-geo-bypass` | unsupported | Geo subsystem |
+| `--geo-bypass-country` | unsupported | Geo subsystem |
+| `--geo-bypass-ip-block` | unsupported | Geo subsystem |
 
 ## Video Selection
 
@@ -86,15 +83,15 @@
 | `--break-on-reject` | present | Hidden parity flag. `Request.BreakOnReject` → `StopBreakOnReject` |
 | `--break-per-input` / `--no-break-per-input` | present | `Request.BreakPerInput`; resets budget/stop scope per input and consumes stops without the global abort diagnostic |
 | `--skip-playlist-after-errors` | present | `flags.Int("skip-playlist-after-errors", ...)` |
-| `--js-runtimes` / `--no-js-runtimes` | defer | JS runtime subsystem |
-| `--remote-components` / `--no-remote-components` | defer | Remote component subsystem |
+| `--js-runtimes` / `--no-js-runtimes` | unsupported | JS runtime subsystem |
+| `--remote-components` / `--no-remote-components` | unsupported | Remote component subsystem |
 | `--flat-playlist` / `--no-flat-playlist` | present | `flags.Bool("flat-playlist", ...)` |
 | `--live-from-start` / `--no-live-from-start` | present | `flags.Bool("live-from-start", ...)` |
-| `--wait-for-video` / `--no-wait-for-video` | defer | Live wait behavior |
-| `--mark-watched` / `--no-mark-watched` | defer | YouTube-specific |
+| `--wait-for-video` / `--no-wait-for-video` | unsupported | Live wait behavior |
+| `--mark-watched` / `--no-mark-watched` | unsupported | YouTube-specific |
 | `--no-colors` / `--no-colours` | present | Hidden aliases that disable both stderr color policies; a later `--color` occurrence can restore one stream |
 | `--color` | present | Parses `STREAM:POLICY` (`always`, `auto`, `auto-tty`, `never`, `no_color`, `no_color-tty`) with per-stream last-wins semantics; human event presentation is stderr-only so stdout remains byte-stable |
-| `--compat-options` | defer | Compatibility shims |
+| `--compat-options` | unsupported | Compatibility shims |
 ## Post-Processing Options
 
 | Option | Status | Notes |
@@ -104,7 +101,7 @@
 | `--audio-quality` | present | `flags.Int("audio-quality", ...)` |
 | `--remux-video` | present | `flags.String("remux-video", ...)` |
 | `--recode-video` | present | `flags.String("recode-video", ...)` |
-| `--postprocessor-args` / `--ppa` | defer | Post-processor args |
+| `--postprocessor-args` / `--ppa` | unsupported | Post-processor args |
 | `--keep-video` / `-k` / `--no-keep-video` | present | `Request.KeepVideo`; retains successfully replaced intermediate media only |
 | `--post-overwrites` / `--no-post-overwrites` | present | `Request.PostOverwrites`; independent postprocessor destination policy, enabled by default |
 | `--embed-subs` / `--no-embed-subs` | present | `flags.Bool("embed-subs", ...)` |
@@ -112,21 +109,21 @@
 | `--embed-metadata` / `--add-metadata` / `--no-embed-metadata` / `--no-add-metadata` | present | `flags.Bool("embed-metadata", ...)` + `Request.EmbedMetadata` |
 | `--embed-chapters` / `--add-chapters` / `--no-embed-chapters` / `--no-add-chapters` | present | `flags.BoolFunc("embed-chapters", ...)` + `Request.EmbedChapters *bool` |
 | `--embed-info-json` / `--no-embed-info-json` | present | `flags.BoolFunc(...)` + `Request.EmbedInfoJSON`; bounded sanitized attachment for mkv/mka only |
-| `--metadata-from-title` | defer | Legacy metadata extraction |
+| `--metadata-from-title` | unsupported | Legacy metadata extraction |
 | `--parse-metadata` | present | `flags.Var(metadataParseFlag{...}, "parse-metadata", ...)` |
 | `--replace-in-metadata` | present | `flags.Var(metadataReplaceFlag{...}, "replace-in-metadata", ...)` |
 | `--xattrs` / `--xattr` | present | Bounded typed metadata mapping with platform capability checks, symlink confinement, and rollback |
 | `--concat-playlist` | present | Closed `never`/`always`/`multi_video` policy with typed compatibility checks and atomic `pl_video:` output |
 | `--fixup` | present | Closed policy values `never`, `ignore`, `warn`, `detect_or_warn`, `force`; detection calls only typed ffmpeg fixups |
 | `--ffmpeg-location` | **present** | `Request.Filesystem.FfmpegLocation` + ffmpeg discovery propagation |
-| `--exec` / `--no-exec` | defer | External command execution |
-| `--exec-before-download` / `--no-exec-before-download` | defer | External command execution |
+| `--exec` / `--no-exec` | unsupported | External command execution |
+| `--exec-before-download` / `--no-exec-before-download` | unsupported | External command execution |
 | `--convert-subs` / `--convert-sub` / `--convert-subtitles` | present | `flags.String("convert-subs", ...)` |
 | `--convert-thumbnails` | present | `flags.String("convert-thumbnails", ...)` |
 | `--split-chapters` / `--no-split-chapters` | present | Bounded typed chapter artifacts under the `chapter:` output path class; all-or-nothing publication |
 | `--remove-chapters` / `--no-remove-chapters` | present | `flags.Var(&removeChapters, "remove-chapters", ...)` |
 | `--force-keyframes-at-cuts` / `--no-force-keyframes-at-cuts` | present | `flags.BoolFunc("force-keyframes-at-cuts", ...)` |
-| `--use-postprocessor` | defer | Plugin post-processor |
+| `--use-postprocessor` | unsupported | Plugin post-processor |
 
 ## SponsorBlock Options
 
@@ -145,7 +142,7 @@
 | `--quiet` / `--no-quiet` | present | `flags.BoolFunc("quiet", ...)` |
 | `--no-warnings` / `--warnings` | present | Suppresses/restores CLI conflict and structured metadata warnings; errors and machine-readable output remain on their established channels |
 | `--simulate` / `-s` / `--no-simulate` | present | `flags.BoolFunc("simulate", ...)` |
-| `--ignore-no-formats-error` / `--no-ignore-no-formats-error` | defer | Error handling |
+| `--ignore-no-formats-error` / `--no-ignore-no-formats-error` | unsupported | Error handling |
 | `--skip-download` / `--no-download` | present | `flags.Bool("skip-download", ...)` |
 | `--print` / `-O` | present | `flags.Var(&printTemplates, "print", ...)` |
 | `--print-to-file` | present | `--print-to-file` handling |
@@ -164,12 +161,12 @@
 | `--newline` | present | Forces each human progress update onto its own stderr line, including on a TTY |
 | `--no-progress` / `--progress` | present | Last occurrence selects whether human progress is suppressed or shown even in quiet mode; lifecycle diagnostics remain independent |
 | `--progress-json` | present | Emits newline-delimited structured events to stderr and takes precedence over human presentation |
-| `--console-title` | defer | Terminal title |
+| `--console-title` | unsupported | Terminal title |
 | `--progress-template` | present | `flags.String("progress-template", ...)` |
 | `--progress-delta` | present | Non-negative seconds between human progress updates; first update per path is emitted and the clock is injectable in tests |
 | `--verbose` / `-v` / `--no-verbose` | present | Last occurrence controls lifecycle/debug event presentation, including quiet mode; no network traffic/title features are implied |
-| `--dump-pages` / `--write-pages` / `--load-pages` | defer | Debug page dumping |
-| `--print-traffic` | defer | Network traffic debug |
+| `--dump-pages` / `--write-pages` / `--load-pages` | unsupported | Debug page dumping |
+| `--print-traffic` | unsupported | Network traffic debug |
 ## Filesystem Options
 
 | Option | Status | Notes |
@@ -185,7 +182,7 @@
 | `--trim-filenames` / `--trim-file-names` | **present** | `Filesystem.TrimFilenames` wired to basename length limit |
 | `--no-overwrites` / `-w` | present | Existing bool-based no-overwrite behavior |
 | `--force-overwrites` / `--yes-overwrites` | present | `--yes-overwrites` is an exact alias of `--force-overwrites` |
-| `--no-force-overwrites` | defer | Current bool plumbing cannot distinguish yt-dlp's tri-state default from explicit no-overwrites |
+| `--no-force-overwrites` | unsupported | Current bool plumbing cannot distinguish yt-dlp's tri-state default from explicit no-overwrites |
 | `--continue` / `-c` / `--no-continue` | **present** | `Filesystem.NoContinue` wired to direct downloader resume control |
 | `--part` / `--no-part` | **present** | `Filesystem.NoPart` wired to `.part` temporary file control |
 | `--mtime` / `--no-mtime` | **present** | `Filesystem.NoMtime` wired to output file mtime from metadata |
@@ -226,7 +223,7 @@
 | `--allow-dynamic-mpd` / `--no-allow-dynamic-mpd` / `--ignore-dynamic-mpd` | present | Dynamic DASH MPDs allow by default; explicit deny maps to unsupported |
 | `--hls-split-discontinuity` / `--no-hls-split-discontinuity` | present | After ordinary format selection, pin the selected HLS representation to its first eligible group; no explicit sequence list means one existing-destination output |
 | `--hls-discontinuity-sequence` | present, repeatable | Select absolute `EXT-X-DISCONTINUITY-SEQUENCE` IDs from the selected native HLS representation; duplicate IDs are ignored, playlist order wins, and multiple IDs fan out transactionally with `.d<id>` names |
-| `--extractor-args` | defer | Extractor-specific arguments |
+| `--extractor-args` | unsupported | Extractor-specific arguments |
 
 ## Go-only Extensions (not in yt-dlp options.py)
 
@@ -234,76 +231,18 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 
 | Option | Status | Notes |
 |--------|--------|-------|
-| `--preferred-extensions` | **wire-only** | `Request.PreferredExtensions []string` exists, no CLI flag |
-| `--youtube-translated-captions` / `--no-youtube-translated-captions` | **wire-only** | `Request.YouTubeTranslatedCaptions bool` exists, no CLI flag |
-| `--live-poll-interval` | **wire-only** | `DownloaderOptions.LivePollInterval` exists, no CLI flag |
-| `--live-refresh-interval` | **wire-only** | `DownloaderOptions.LiveRefreshInterval` exists, no CLI flag |
-| `--live-max-polls` | **wire-only** | `DownloaderOptions.LiveMaxPolls` exists, no CLI flag |
-| `--live-max-no-progress-polls` | **wire-only** | `DownloaderOptions.LiveMaxNoProgressPolls` exists, no CLI flag |
+| `--preferred-extensions` | **API-only** | `Request.PreferredExtensions []string` exists, no CLI flag |
+| `--youtube-translated-captions` / `--no-youtube-translated-captions` | **API-only** | `Request.YouTubeTranslatedCaptions bool` exists, no CLI flag |
+| `--live-poll-interval` | **API-only** | `DownloaderOptions.LivePollInterval` exists, no CLI flag |
+| `--live-refresh-interval` | **API-only** | `DownloaderOptions.LiveRefreshInterval` exists, no CLI flag |
+| `--live-max-polls` | **API-only** | `DownloaderOptions.LiveMaxPolls` exists, no CLI flag |
+| `--live-max-no-progress-polls` | **API-only** | `DownloaderOptions.LiveMaxNoProgressPolls` exists, no CLI flag |
 
 ---
 
-## Summary
+## Current classification notes
 
-| Category | Count |
-|----------|-------|
-| **present** | ~116 |
-| **wire-only** | 6 Go-only |
-| **needs-core** | ~2 (misc) |
-| **parked** | ~4 (verbosity) |
-| **defer** | ~100+ |
-| **Total yt-dlp options** | ~292 |
-
-## Wave Plan
-
-### Wave 1 (this PR)
-| Flag | Classification | Work |
-|------|---------------|------|
-| `--no-overwrites` | present | Inverse of `--force-overwrites`, pure CLI |
-| `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` reaches the registered YouTube, Dailymotion, and Bilibili `_yes_playlist`-style ambiguity lanes |
-
-### Wave 1b (playlist-disable consume)
-| `--no-playlist` / `--yes-playlist` | present | YouTube watch, Dailymotion video-context, and Bilibili anthology routes consume `NoPlaylist`; explicit playlist-only routes remain playlists |
-
-### Wave 2 (this PR)
-| Flag | Classification | Work |
-|------|---------------|------|
-| `--restrict-filenames` / `--no-restrict-filenames` | present | `Filesystem.RestrictFilenames` → template filename sanitization |
-| `--windows-filenames` / `--no-windows-filenames` | present | `Filesystem.WindowsFilenames` → Windows-compatible path parts |
-| `--trim-filenames` / `--trim-file-names` | present | `Filesystem.TrimFilenames` → basename length limit |
-| `--continue` / `-c` / `--no-continue` | present | `Filesystem.NoContinue` → direct downloader resume control |
-| `--part` / `--no-part` | present | `Filesystem.NoPart` → `.part` temporary file control |
-| `--mtime` / `--no-mtime` | present | `Filesystem.NoMtime` → output file mtime from metadata |
-| `--ffmpeg-location` | present | `Filesystem.FfmpegLocation` → ffmpeg/ffprobe discovery |
-
-### Wave 3
-| Flag | Classification | Work |
-|------|---------------|------|
-| `--batch-file` / `-a` / `--no-batch-file` | present | Bounded URL reading pipeline; repeatable files, comments/blank lines, and stdin via `-` |
-| `--list-formats` / `-F` | present | Existing format-table renderer at the pre-process stage; simulation is implied unless `--no-simulate` is explicit |
-
-### Wave 5
-
-| `--list-extractors` | present | Deterministic built-in registry metadata on stdout; positional and batch URLs are deduplicated and assigned by offline `Suitable` matching |
-| `--extractor-descriptions` | present | Bounded native descriptions with stable ordering and explicit generic-last handling; input-independent |
-
-### Wave 4
-| Flag | Classification | Work |
-|------|---------------|------|
-| `--match-title` / `--reject-title` | present | Hidden parity flags; `internal/compat/simplefilter` case-insensitive regex title checks |
-| `--date` / `--dateafter` / `--datebefore` | present | Strict `date_from_str` grammar + inclusive `DateRange`; `--date` wins with a warning |
-| `--min-views` / `--max-views` / `--age-limit` | present | Hidden parity flags for views; `age_restricted` semantics |
-| `--min-filesize` / `--max-filesize` | present | `DownloaderOptions` bounds enforced in the direct HTTP downloader (known-length preflight plus bounded streaming for unknown/misleading lengths; Content-Encoding remains exempt) |
-| `--max-downloads` | present | Per-Run cap with partial `Result.Downloads` accounting on categorized errors; CLI carries the remaining budget across batch inputs |
-| `--break-on-existing` / `--no-break-on-existing` | present | Archive matches stop the run (`StopBreakOnExisting`) |
-| `--break-on-reject` | present | Hidden parity flag; any filter rejection stops the run (`StopBreakOnReject`) |
-| `--break-per-input` / `--no-break-per-input` | present | Resets budget/stop scope per input without `Aborting remaining downloads` or exit 101 |
-| `--force-write-archive` / aliases | present | Records successful simulate/skip-download entries after selection; rejects and size aborts are not recorded |
-| Stopping exit contract | present | Queue-wide stops emit `Aborting remaining downloads` and exit 101; per-input stops continue silently; cancellation remains 130 |
-
-### Parked
-No flags in this terminal/presentation slice. Console title and traffic dumping remain deferred because they are explicitly outside the event/presentation contract.
-
-### Go-only (Wave 4)
-`--preferred-extensions`, `--youtube-translated-captions`, live poll flags
-| `--alias` / `-t` / `--preset-alias` | present | Config alias system (pre-parse) |
+- `present` means the CLI registration and behavior are both in this repository.
+- `API-only` options remain available only to Go callers.
+- `unsupported` is a current compatibility boundary, not a statement of future intent.
+- Go-only behavior is not counted as yt-dlp CLI parity.

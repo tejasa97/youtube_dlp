@@ -1,17 +1,14 @@
-# Phase 1 plugin spike
+# Plugin protocol boundary
 
-## Outcome
+## Decision
 
-The Phase 1 experiment selects a versioned out-of-process RPC protocol as the
-primary Phase 2 plugin architecture. WebAssembly remains a secondary option for
+The implemented plugin boundary uses a versioned out-of-process RPC protocol. WebAssembly remains a secondary option for
 pure, sandbox-friendly extractors that need no ambient filesystem, network,
 cookie, or secret access.
 
-The spike is intentionally not wired into automatic extractor discovery. A
-future product integration must first define trusted installation, signing,
-updates, and user-visible permission approval. Loading arbitrary files from a
-search path would turn a successful protocol experiment into a supply-chain
-feature without an adequate security design.
+The protocol is not wired into automatic extractor discovery. Loading arbitrary
+files from a search path is outside the supported boundary and would bypass the
+repository's pack verification and permission controls.
 
 ## Shared model
 
@@ -28,14 +25,12 @@ classify with `errors.Is`:
 - caller cancellation through `context.Canceled` or
   `context.DeadlineExceeded`.
 
-Permissions are deny-by-default. The spike names network, cookie, secret, and
+Permissions are deny-by-default. The protocol names network, cookie, secret, and
 filesystem-read permissions. Naming a permission does not grant it and does not
 create a host API. A required permission must be present in the caller's grant.
 
 Secrets must not be placed in executable arguments, environment variables,
-stderr, manifests, or ordinary metadata. Phase 2 should transfer short-lived
-opaque host handles over a separate authenticated channel. Neither spike
-currently transfers secrets.
+stderr, manifests, or ordinary metadata. Neither protocol transfers secrets.
 
 ## RPC protocol
 
@@ -63,9 +58,8 @@ Captured plugin stderr is never embedded in returned errors. Remote structured
 error messages redact conventional token/signature/password/key assignments
 before rendering; callers must treat the explicit detail object as untrusted.
 
-The portable spike bounds time and communication resources. Portable hard
-address-space/process-count limits are not implemented; Phase 2 must add
-platform sandbox adapters or launch plugins through a dedicated supervisor.
+The portable RPC boundary limits time and communication resources. It does not
+claim portable hard address-space or process-count isolation.
 
 ## WASM ABI
 
@@ -83,18 +77,13 @@ bits. The response is strict JSON and its request ID must match.
 The runtime enforces a page memory maximum, message limits, context
 cancellation, and a wall-clock deadline. `WithCloseOnContextDone` terminates
 non-returning guest code. wazero 1.9 does not expose a stable portable
-instruction-fuel budget, so the spike does not claim fuel metering. The
-wall-clock deadline is the bounded substitute for Phase 1; adding deterministic
-instruction accounting remains a Phase 2 experiment.
+instruction-fuel budget, so the current boundary does not claim fuel metering.
 
 ## Discovery, signing, and updates
 
-Recommended Phase 2 packaging is a signed archive containing a sidecar manifest
-and one platform executable per target for RPC, or one WASM module. Discovery
-should use explicit configured directories, reject writable-by-others paths,
-verify a publisher signature before execution, pin the protocol range, and show
-permission changes before update. Rollback metadata and revocation are required
-before any automatic updater is enabled.
+Automatic search-path discovery is unsupported. Signed-pack verification and
+installation are separate explicit operations with the platform limitations
+documented by the pack and updater contracts.
 
 ## Portability and evidence
 
@@ -107,7 +96,7 @@ packages and example commands for Linux, macOS, and Windows.
 Known deviations are explicit:
 
 - no automatic discovery or product registry integration;
-- no signing/update implementation;
+- signing and update are separate explicit package operations;
 - no secret-transfer channel;
 - no portable RPC OS-level memory/process sandbox;
 - no WASM instruction fuel counter; and

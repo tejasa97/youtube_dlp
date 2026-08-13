@@ -1,6 +1,6 @@
-# Phase 3 semantic review ledger
+# Semantic review ledger
 
-This ledger records bounded Phase 3 shadow reports and their disposition. It
+This ledger records bounded shadow reports and their disposition. It
 does not convert live observations into compatibility claims. Reports must be
 produced with `shadowcheck`, retain no raw secrets, and identify only an
 attributable fixture or approved deployment window.
@@ -9,9 +9,8 @@ attributable fixture or approved deployment window.
 | --- | --- | --- | ---: | --- | --- |
 | `conformance/differential/phase3/reference.json` vs `go.json` | synthetic mechanism corpus | reviewed equal | 0 | comparator/redaction foundation accepted; not beta traffic evidence | conformance |
 
-No deployment shadow window has been submitted. Therefore Gate G3 criterion 3
-is not yet demonstrated for beta traffic, even though the checked-in mechanism
-corpus has no mismatch. Any future critical report remains open until a bounded
+No deployment shadow evidence is recorded. The checked-in mechanism corpus has
+no mismatch but is not evidence about live traffic. Any new critical report remains open until a bounded
 fixture, reviewed cause, patch or accepted non-critical deviation, and passing
 verification are recorded here.
 

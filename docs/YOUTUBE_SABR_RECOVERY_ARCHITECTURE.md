@@ -1,9 +1,8 @@
 # YouTube finite-VOD SABR recovery architecture
 
-Status: frozen design for a retained experimental extension. This architecture
-is excluded from parity goals, roadmap deliverables, release gates, and
-remaining-work estimates. It extends PR #84 crash-safe resume; it does not
-redesign checkpoints or open any further SABR work.
+Status: current architecture for a retained experimental extension. It is
+excluded from parity and supported-product claims. The implementation uses the
+existing crash-safe resume and checkpoint contracts.
 
 ## Architecture table
 
@@ -37,7 +36,7 @@ redesign checkpoints or open any further SABR work.
 - Generic media URL refresh outside SABR/signed extraction identity
 - Checkpoint schema redesign; CLI flags; new Innertube client profiles
 
-These variants are not planned follow-up work. They remain documented only to
+These variants are outside the supported product scope. They remain documented only to
 define the safe boundary of the retained implementation.
 
 ## Secret hygiene

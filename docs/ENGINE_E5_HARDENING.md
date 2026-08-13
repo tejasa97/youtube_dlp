@@ -50,7 +50,7 @@ the coordinator's post-review acceptance check.
 | Platform | Lease primitive | No-replace publication | Evidence status |
 | --- | --- | --- | --- |
 | Unix targets supported by `lease_unix.go` | non-blocking `flock` | hard-link create-if-absent, with fingerprint reconciliation | deterministic and cross-process tests exercised on this Unix host |
-| Windows | `LockFileEx` | Go `os.Link` create-if-absent path with the same fingerprint/collision checks | test binaries compile here; native Windows runner must execute the bounded test command before release approval |
+| Windows | `LockFileEx` | Go `os.Link` create-if-absent path with the same fingerprint/collision checks | cross-compilation only; no native Windows durability claim |
 | Other targets | fail closed (`ErrLeaseUnavailable`) | not an advertised resumable-session platform | intentional |
 
 Run the bounded E5 regression suite with explicit test and fuzz limits:

@@ -1,6 +1,6 @@
 # ADR 0001: Regular-expression compatibility
 
-Status: Accepted for Phase 0
+Status: Accepted
 
 ## Context
 
@@ -11,19 +11,17 @@ look like site breakage.
 
 ## Decision
 
-All extractor regexes will go through a small compatibility interface. The
-standard library engine is the default and must be used when a pattern compiles
-and its semantics are sufficient. A later risk pilot may add a bounded fallback
-engine for patterns requiring backtracking features. Fallback evaluation must
-accept a context/deadline and an input-size limit.
+Extractor regular expressions use the bounded compatibility interface. The
+standard library engine is used when its syntax and semantics are sufficient.
+Patterns requiring the documented Python-compatible subset use the bounded
+adapter with source, translation, input, attempt, and execution budgets.
 
 Unsupported syntax is a categorized, testable error. Patterns are never
-silently rewritten unless a conformance fixture proves the rewrite equivalent.
-Extractor migrations will inventory required constructs so the fallback
-dependency is justified by actual coverage.
+silently rewritten unless deterministic conformance evidence establishes the
+rewrite.
 
 ## Consequences
 
-Simple extractors retain RE2's linear-time safety. Complex patterns incur an
-explicit compatibility and denial-of-service review. Phase 1 owns the fallback
-engine experiment and differential corpus.
+Simple expressions retain RE2's linear-time safety. Backtracking-compatible
+expressions cross an explicit denial-of-service boundary and remain subject to
+the limits documented by the compatibility package and capability manifest.

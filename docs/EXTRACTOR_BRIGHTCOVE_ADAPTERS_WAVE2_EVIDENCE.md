@@ -1,9 +1,8 @@
-# Brightcove adapters wave 2 evidence
+# Brightcove adapter evidence
 
-Baseline: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
-Go branch: `codex/brightcove-adapters-wave-2`
+Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 
-This wave adds eight public-site Brightcove adapters that discover validated
+This evidence covers eight public-site Brightcove adapters that discover validated
 account/player/video identities and hand off to the existing `brightcove`
 extractor. No Brightcove playback logic was duplicated.
 
@@ -36,13 +35,11 @@ cancellation, bounds, and secret-safe failure tests in
 - Wimbledon and Sky News AU metadata API calls use `hostedRequestJSONWithoutCredentialsNoRedirect`; ambient `Do` is never used for those endpoints.
 - Description metadata from Wimbledon/USA Today is not copied because `Entry` does not support it.
 
-## Checklist promotion
+## Inventory classification
 
-`go run ./cmd/extractorinventory` promotes these rows to `already_supported`:
+`go run ./cmd/extractorinventory` classifies these rows as `already_supported`:
 
 - `formula1`, `europeantour`, `maoritv`, `thestar`, `thesun`, `wimbledon`, `usatoday`, `skynewsau`
-
-Post-wave inventory counts: `already_supported=94`, `uses_existing_shared_backend=61`.
 
 ## Verification commands
 

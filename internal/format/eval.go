@@ -277,7 +277,7 @@ func mergeTrackGroups(ctx *evalContext, left, right [][]*value.Object) ([][]*val
 
 // applyMultistreamSuppression walks the tracks in original order and removes
 // storyboard tracks plus later same-kind tracks when the corresponding
-// multistream option is false. It is the PR 5 replacement for the deleted
+// multistream option is false. It replaces the deleted
 // dedupeMergeTracks helper; it never deduplicates by identity.
 func applyMultistreamSuppression(tracks []*value.Object, options Options) []*value.Object {
 	if len(tracks) <= 1 {
@@ -641,7 +641,8 @@ func hasMergedFormat(formats []*value.Object) bool {
 func atomMatches(candidate *value.Object, atom Atom) bool {
 	switch {
 	case atom.Media == AtomMediaCombined && !atom.Star:
-		// Plain best/worst match combined audio+video formats per PR 5 §7A.
+		// Plain best/worst match combined audio+video formats under the
+		// pinned combined-format rule.
 		return codecNotNone(candidate, "vcodec") && codecNotNone(candidate, "acodec")
 	case atom.Media == AtomMediaCombined && atom.Star:
 		return codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec")

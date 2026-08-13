@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Capture pinned FormatSorter canonical order for the dedicated PR 4 sorter
-oracle corpus.
+"""Capture pinned FormatSorter canonical order for the sorter oracle corpus.
 
 This script is a maintainer-only artifact. It runs with the pinned CPython
 interpreter and only writes the fixture file when invoked with --write.
 Production Go tests load the committed JSON and never invoke Python.
+
+Set YTDLP_REFERENCE_DIR to the pinned read-only yt-dlp checkout before running
+this script.
 """
 import argparse
 import copy
@@ -18,8 +20,11 @@ from pathlib import Path
 
 REFERENCE_COMMIT = "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8"
 EXPECTED_PYTHON = "CPython 3.12.13"
-REFERENCE_DIR = Path("/Users/tejas/projects/yt-dlp-reference")
 WORKTREE_DIR = Path(__file__).resolve().parents[3]
+reference_path = os.environ.get("YTDLP_REFERENCE_DIR")
+if not reference_path:
+    raise SystemExit("set YTDLP_REFERENCE_DIR to the pinned yt-dlp checkout")
+REFERENCE_DIR = Path(reference_path)
 
 sys.path.insert(0, str(REFERENCE_DIR))
 

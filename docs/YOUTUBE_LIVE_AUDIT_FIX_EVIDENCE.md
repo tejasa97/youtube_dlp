@@ -75,7 +75,7 @@ The EJS solver now uses a two-phase preprocess/solve split with:
 | Level | Evidence | Status |
 | --- | --- | --- |
 | Automated proof | `TestSupervisorTrustedWallTimeCrossesProcessBoundary` (EJS call with 45 s succeeds across pipe), `TestSupervisorRejectsUntrustedExtendedWallTime`, `TestSupervisorRejectsTrustedGenericEvaluate` (evaluate+Trusted rejected), `TestSupervisorRejectsSpoofedTrustedWallTimeMS` (forged grant stripped), `TestSupervisorRejectsTrustedNonJSCCall` (non-jsc call rejected), `TestRepresentativeWorkloadUnderOldLimit` (55 s > 30 s structural proof), `TestSingleflightCoalescesPreprocessing`, `TestSingleflightCanceledLeaderDoesNotFailLiveFollower`, `TestSingleflightAllWaitersCancelCancelsPreprocessing`, `TestSingleflightCanceledLeaderNoFollowersReturnsPromptly`, `TestSingleflightOneFollowerCancelsOtherRemains`, `TestSingleflightFollowerCancellation`, `TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves` (slow JS active during Close, process terminated), `TestLargeGeneratedPlayerWorkload` (~150 KB), `TestClientConcurrentRunAndClose` | Passing |
-| Live validation | Protected-video canary extraction against live YouTube | Pending (service-dependent, non-authoritative) |
+| Live validation | Protected-video canary extraction against live YouTube | Unavailable (service-dependent, non-authoritative) |
 | Remaining deviation | No sanitized real 1-2 MB player fixture committed (proprietary); generated ~150 KB workload exercises meriyah parse path but does not empirically reproduce the original 30 s timeout; the fix is proven structurally via protocol validation gating and end-to-end supervisor tests | Documented |
 
 Live canary validation remains service-dependent and non-authoritative.

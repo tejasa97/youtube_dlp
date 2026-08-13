@@ -3,7 +3,7 @@
 ## Reference provenance
 
 Behavior was compared read-only with the pinned checkout at
-`/Users/tejas/projects/yt-dlp-reference`, commit
+`/path/to/yt-dlp-reference`, commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
 
 The relevant upstream code is `yt_dlp/options.py` (`--list-subs`,

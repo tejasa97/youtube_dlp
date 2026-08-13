@@ -244,7 +244,7 @@ var sorterFieldSettings = map[string]*sorterFieldSetting{
 // sorterAliasTable maps the canonical-name aliases accepted by FormatSorter to
 // their underlying field. Deprecated aliases share the same mapping but carry
 // the deprecated flag for provenance only; the Go sorter does not emit
-// warnings in PR 4.
+// sort warnings.
 type sorterAlias struct {
 	target     string
 	deprecated bool

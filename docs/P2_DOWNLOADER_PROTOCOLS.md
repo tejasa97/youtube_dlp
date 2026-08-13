@@ -1,4 +1,4 @@
-# Phase 2 downloader and protocol lane
+# Downloader and protocol boundary
 
 This lane supplies the native transport foundation for direct files, media
 fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
@@ -59,7 +59,7 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
   credentials, userinfo URLs, unknown key methods/formats, Apple FairPlay,
   Microsoft PlayReady, Adobe FAXS, and `SAMPLE-AES-CTR`. Authenticated
   SAMPLE-AES therefore still requires an explicitly configured downloader or
-  a future credential-safe local proxy. Delegation also gives up native
+  a credential-safe local proxy, which is outside the current boundary. Delegation also gives up native
   fragment resume/concurrency and ad-suppression behavior. As with an explicit
   ffmpeg downloader, the selected manifest URL is present in the child
   process argument vector; errors and events always redact it.

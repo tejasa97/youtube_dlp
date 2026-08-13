@@ -19,8 +19,7 @@ import (
 
 const riskExtractorMaxJSONBytes int64 = 16 << 20
 
-// requestRiskJSON is the bounded JSON boundary shared by the Phase 2 risk
-// extractors. In particular, it never includes request or response bodies in
+// requestRiskJSON is the bounded JSON boundary shared by risk-sensitive extractors. In particular, it never includes request or response bodies in
 // diagnostics because both commonly contain bearer tokens or signed URLs.
 func requestRiskJSON(ctx context.Context, transport Transport, method, rawURL string, body []byte, headers http.Header, profile string, target any) error {
 	if transport == nil || target == nil {

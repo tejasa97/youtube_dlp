@@ -1,4 +1,4 @@
-# Phase 3 local coverage report
+# Local coverage report
 
 `telemetrycheck` merges opt-in privacy-safe snapshots without CI or a network
 exporter. It emits one deterministic-shape JSON report containing the merged

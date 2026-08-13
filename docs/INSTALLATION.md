@@ -88,9 +88,9 @@ ffmpeg -version
 ffprobe -version
 ```
 
-Future binary releases may bundle a reviewed FFmpeg distribution. Until the
-redistribution source, configuration, notices, and licensing process are
-defined, this documentation does not promise a bundled copy.
+Current source builds and repository images do not promise a bundled FFmpeg
+distribution. FFmpeg and FFprobe remain explicit external dependencies where an
+operation requires them.
 
 ## Docker
 
@@ -122,16 +122,3 @@ JavaScript helper.
 
 VidStow installation, local-data, update, and removal behavior is documented in
 the separate VidStow repository.
-
-## Future release installation
-
-Once public packages exist, this page will document:
-
-- signed CLI archives and operating-system packages where appropriate;
-- supported operating-system and architecture versions;
-- checksums, signatures, and provenance verification;
-- upgrades, rollback, and uninstall behavior; and
-- the difference between stable, beta, and development channels.
-
-No command or link will be added here until the corresponding artifact and
-verification process are operational.

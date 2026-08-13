@@ -28,8 +28,8 @@ var ErrInvalidPreference = errors.New("invalid format preference")
 //
 // Sort carries the final ordered user sort list after CLI/config accumulation
 // and reset processing. Repeated CLI -S flags append fields in occurrence
-// order; --format-sort-reset clears previously accumulated user fields. PR 9
-// exposes those CLI operations; PR 4 documents the boundary and tests that
+// order; --format-sort-reset clears previously accumulated user fields. The CLI
+// exposes those operations, and the conformance boundary tests that
 // Options.Sort order is preserved exactly.
 //
 // PreferExtensions is retained for Go API compatibility. It is inserted at
@@ -221,8 +221,9 @@ func freeRank(object *value.Object) int {
 }
 
 // extractorPreference is retained for the legacy atom-match scoring path used
-// by quality and extension selectors. PR 5 replaces this path; PR 4 leaves
-// it untouched. The pinned canonical sort path computes preference through
+// by quality and extension selectors. The canonical evaluator replaces this
+// path; the adapter leaves it untouched. The pinned canonical sort path
+// computes preference through
 // the new sorter.
 func extractorPreference(object *value.Object) float64 {
 	preference, ok := numeric(object.Lookup("preference"))

@@ -6,7 +6,7 @@ unicodedata.lookup. Go tests/builds/production never invoke this script.
 
 Example:
 
-  /Users/tejas/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \\
+  python3 \\
     conformance/compat/format_selector/generate_unicode_names.py --write
 """
 

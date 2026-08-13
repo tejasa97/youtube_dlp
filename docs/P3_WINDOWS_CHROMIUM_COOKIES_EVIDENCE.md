@@ -1,4 +1,4 @@
-# Phase 3 Windows Chromium cookie evidence
+# Windows Chromium cookie evidence
 
 ## Delivered
 

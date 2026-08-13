@@ -1,7 +1,7 @@
 # Routing-controls provenance
 
 Source: read-only inspection of
-`/Users/tejas/projects/yt-dlp-reference` at
+`/path/to/yt-dlp-reference` at
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
 
 Attributable reference surfaces:

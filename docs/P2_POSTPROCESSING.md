@@ -1,4 +1,4 @@
-# Phase 2 post-processing lane
+# Post-processing boundary
 
 `internal/media/ffmpeg` is the sole external-tool boundary. It starts ffmpeg
 and ffprobe with argument vectors (never a shell), uses an explicitly bounded
