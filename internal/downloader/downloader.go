@@ -254,6 +254,10 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	throttleRestarts := 0
 	for attempt := 1; attempt <= attempts; attempt++ {
 		result, lastErr = downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+		// NoContinue is an initial-attempt instruction. Later transport retries
+		// must reload any checkpoint committed by the first attempt rather than
+		// truncating durable progress and reporting regressing callback offsets.
+		job.NoContinue = false
 		if lastErr == nil {
 			if plan.enabled {
 				if err := ctx.Err(); err != nil {

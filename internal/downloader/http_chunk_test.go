@@ -33,7 +33,19 @@ func TestHTTPChunkRangeRandomizesWithinFivePercentWindow(t *testing.T) {
 
 func TestHTTPChunkNoContinueReloadsCumulativeCheckpointBetweenRanges(t *testing.T) {
 	data := bytes.Repeat([]byte("chunk-checkpoint-fixture"), 150_000)
+	var failureMu sync.Mutex
+	forbidden := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		failureMu.Lock()
+		reject := strings.HasPrefix(request.Header.Get("Range"), "bytes=1048576-") && forbidden < 3
+		if reject {
+			forbidden++
+		}
+		failureMu.Unlock()
+		if reject {
+			http.Error(writer, "retry this chunk", http.StatusForbidden)
+			return
+		}
 		http.ServeContent(writer, request, "media.bin", time.Time{}, bytes.NewReader(data))
 	}))
 	defer server.Close()
@@ -56,11 +68,13 @@ func TestHTTPChunkNoContinueReloadsCumulativeCheckpointBetweenRanges(t *testing.
 	job.HTTPChunkSize = 1 << 20
 	job.HTTPChunkFixed = true
 	job.ExpectedBytes = int64(len(data))
+	job.Attempts = 3
 
 	doer := checkpointDoerFunc(func(ctx context.Context, request *http.Request) (*http.Response, error) {
 		return server.Client().Do(request.WithContext(ctx))
 	})
-	result, err := New(doer).Download(context.Background(), job, nil)
+	downloader := NewWithHooks(doer, time.Now, func(context.Context, time.Duration) error { return nil })
+	result, err := downloader.Download(context.Background(), job, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
