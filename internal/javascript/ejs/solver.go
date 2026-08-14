@@ -63,10 +63,11 @@ type Solver struct {
 	executor Executor
 	script   string
 
-	mu     sync.Mutex
-	cache  map[string]string // player SHA-256 → preprocessed player
-	order  []string          // LRU eviction order (oldest first)
-	flight map[string]*call  // in-flight preprocessing coordination
+	mu             sync.Mutex
+	preprocessSlot chan struct{}
+	cache          map[string]string // player SHA-256 → preprocessed player
+	order          []string          // LRU eviction order (oldest first)
+	flight         map[string]*call  // in-flight preprocessing coordination
 }
 
 // call represents an in-flight preprocessing operation owned by the flight,
@@ -94,10 +95,11 @@ func New(executor Executor) (*Solver, error) {
 		return nil, err
 	}
 	return &Solver{
-		executor: executor,
-		script:   script,
-		cache:    make(map[string]string, MaxCachedPlayers),
-		flight:   make(map[string]*call),
+		executor:       executor,
+		script:         script,
+		preprocessSlot: make(chan struct{}, 1),
+		cache:          make(map[string]string, MaxCachedPlayers),
+		flight:         make(map[string]*call),
 	}, nil
 }
 
@@ -215,6 +217,17 @@ func (solver *Solver) waitForFlight(ctx context.Context, inflight *call) (string
 
 // preprocess runs the expensive player parsing phase with an extended wall time.
 func (solver *Solver) preprocess(ctx context.Context, id, player string) (string, error) {
+	// Meriyah parsing is CPU- and memory-intensive. Running distinct player
+	// preprocessors concurrently can make otherwise valid scripts exceed the
+	// helper wall-time limit. Same-player calls are already coalesced above;
+	// serialize distinct cache misses while allowing cancellation while queued.
+	select {
+	case solver.preprocessSlot <- struct{}{}:
+		defer func() { <-solver.preprocessSlot }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+
 	input := struct {
 		Type               string             `json:"type"`
 		Player             string             `json:"player"`
