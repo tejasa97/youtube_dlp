@@ -17,6 +17,7 @@ import (
 const (
 	youtubeMaxCaptionPlayers          = 8
 	youtubeMaxCaptionTracks           = 128
+	youtubeMaxRawCaptionTracks        = 1024
 	youtubeMaxTranslationLanguages    = 256
 	youtubeMaxCaptionRuns             = 16
 	youtubeMaxCaptionTextBytes        = 512
@@ -70,6 +71,7 @@ type youtubeCaptionCandidate struct {
 	subsPolicy    youtubePOTPolicy
 	playerToken   bool
 	requiresToken bool
+	tokenKey      string
 }
 
 type youtubeCaptionTokenState struct {
@@ -101,13 +103,14 @@ func normalizeYouTubeCaptions(ctx context.Context, players []youtubePlayerRespon
 	if err != nil {
 		return result, err
 	}
-	seen := make(map[string]bool)
+	subtitleSeen := make(map[string]bool)
+	automaticSeen := make(map[string]bool)
 	outputBytes := 0
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		state := states[candidate.clientName]
+		state := states[candidate.tokenKey]
 		if state.skip {
 			continue
 		}
@@ -117,7 +120,7 @@ func normalizeYouTubeCaptions(ctx context.Context, players []youtubePlayerRespon
 				continue
 			}
 			name := strings.TrimSuffix(candidate.name, " (auto-generated)")
-			if err := addYouTubeCaptionFormats(result.automaticCaptions, seen, language, name, candidate, state, "", &outputBytes); err != nil {
+			if err := addYouTubeCaptionFormats(result.automaticCaptions, automaticSeen, language, name, candidate, state, "", &outputBytes); err != nil {
 				return result, err
 			}
 			if !candidate.translatable {
@@ -126,21 +129,21 @@ func normalizeYouTubeCaptions(ctx context.Context, players []youtubePlayerRespon
 			if result.audioLanguage == "" {
 				result.audioLanguage = language
 			}
-			if err := addYouTubeCaptionFormats(result.automaticCaptions, seen, language+"-orig", name+" (Original)", candidate, state, "", &outputBytes); err != nil {
+			if err := addYouTubeCaptionFormats(result.automaticCaptions, automaticSeen, language+"-orig", name+" (Original)", candidate, state, "", &outputBytes); err != nil {
 				return result, err
 			}
 			for _, translation := range translations {
 				if translation.code == language {
 					continue
 				}
-				if err := addYouTubeCaptionFormats(result.automaticCaptions, seen, translation.code, translation.name, candidate, state, translation.code, &outputBytes); err != nil {
+				if err := addYouTubeCaptionFormats(result.automaticCaptions, automaticSeen, translation.code, translation.name, candidate, state, translation.code, &outputBytes); err != nil {
 					return result, err
 				}
 			}
 			continue
 		}
 
-		if err := addYouTubeCaptionFormats(result.subtitles, seen, candidate.language, candidate.name, candidate, state, "", &outputBytes); err != nil {
+		if err := addYouTubeCaptionFormats(result.subtitles, subtitleSeen, candidate.language, candidate.name, candidate, state, "", &outputBytes); err != nil {
 			return result, err
 		}
 		if !translatedManual || !candidate.translatable {
@@ -154,7 +157,7 @@ func normalizeYouTubeCaptions(ctx context.Context, players []youtubePlayerRespon
 			if language != "und" {
 				language += "-" + candidate.language
 			}
-			if err := addYouTubeCaptionFormats(result.automaticCaptions, seen, language, translation.name+" from "+candidate.name, candidate, state, translation.code, &outputBytes); err != nil {
+			if err := addYouTubeCaptionFormats(result.automaticCaptions, automaticSeen, language, translation.name+" from "+candidate.name, candidate, state, translation.code, &outputBytes); err != nil {
 				return result, err
 			}
 		}
@@ -169,9 +172,10 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 	translationSeen := make(map[string]bool)
 	candidates := make([]youtubeCaptionCandidate, 0)
 	candidateSeen := make(map[string]bool)
+	resourceSeen := make(map[string]bool)
 	for _, player := range players {
 		tracklist := player.Captions.Tracklist
-		if len(tracklist.CaptionTracks) > youtubeMaxCaptionTracks || len(tracklist.TranslationLanguages) > youtubeMaxTranslationLanguages {
+		if len(tracklist.CaptionTracks) > youtubeMaxRawCaptionTracks || len(tracklist.TranslationLanguages) > youtubeMaxTranslationLanguages {
 			return nil, nil, fmt.Errorf("%w: YouTube caption resource limit", ErrInvalidMetadata)
 		}
 		for _, language := range tracklist.TranslationLanguages {
@@ -209,20 +213,6 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 			if !validYouTubeCaptionLanguage(language) || name == "" {
 				continue
 			}
-			// Multiple player clients commonly return the same caption track. Count
-			// only distinct resources toward the global bound so ordinary videos do
-			// not fail merely because metadata recovery queried several clients.
-			key := language + "\x00" + base.String()
-			if candidateSeen[key] {
-				continue
-			}
-			candidateSeen[key] = true
-			if len(candidates) >= youtubeMaxCaptionTracks {
-				// Captions are optional extraction metadata. Keep the bounded set
-				// already collected instead of failing an otherwise downloadable video
-				// when several clients advertise different URLs for the same tracks.
-				continue
-			}
 			candidate := youtubeCaptionCandidate{
 				base: base, language: language, name: name, automatic: track.Kind == "asr",
 				translatable: track.IsTranslatable, clientName: clientName,
@@ -230,6 +220,24 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 				subsPolicy: player.subsPolicy, playerToken: player.playerTokenProvided,
 			}
 			candidate.requiresToken = youtubeCaptionURLRequiresToken(base) || candidate.subsPolicy.required(candidate.playerToken, false)
+			candidate.tokenKey = fmt.Sprintf("%s\x00%s\x00%s\x00%t\x00%t", candidate.clientName, candidate.visitorData, candidate.playerURL, candidate.requiresToken, candidate.subsPolicy.Recommended)
+
+			// The resource bound counts URLs, while candidate deduplication also
+			// includes the client/token context. Different clients can advertise the
+			// same URL but have different token availability, so retaining those
+			// candidates is necessary for fallback after token resolution.
+			resourceKey := language + "\x00" + base.String()
+			if !resourceSeen[resourceKey] {
+				if len(resourceSeen) >= youtubeMaxCaptionTracks {
+					continue
+				}
+				resourceSeen[resourceKey] = true
+			}
+			key := fmt.Sprintf("%s\x00%s\x00%s\x00%t\x00%t\x00%s", resourceKey, candidate.tokenKey, candidate.name, candidate.automatic, candidate.translatable, track.Kind)
+			if candidateSeen[key] {
+				continue
+			}
+			candidateSeen[key] = true
 			candidates = append(candidates, candidate)
 		}
 	}
@@ -245,20 +253,21 @@ func resolveYouTubeCaptionTokens(ctx context.Context, candidates []youtubeCaptio
 	requests := make(map[string]clientRequest)
 	order := make([]string, 0)
 	for _, candidate := range candidates {
-		request, exists := requests[candidate.clientName]
+		request, exists := requests[candidate.tokenKey]
 		if !exists {
 			request.candidate = candidate
-			order = append(order, candidate.clientName)
+			order = append(order, candidate.tokenKey)
 		}
 		request.required = request.required || candidate.requiresToken
 		request.recommended = request.recommended || candidate.subsPolicy.Recommended
-		requests[candidate.clientName] = request
+		requests[candidate.tokenKey] = request
 	}
 	states := make(map[string]youtubeCaptionTokenState, len(requests))
-	for _, clientName := range order {
-		request := requests[clientName]
+	for _, tokenKey := range order {
+		request := requests[tokenKey]
+		clientName := request.candidate.clientName
 		if tokens == nil {
-			states[clientName] = youtubeCaptionTokenState{skip: request.required}
+			states[tokenKey] = youtubeCaptionTokenState{skip: request.required}
 			continue
 		}
 		token, ok, err := tokens.ResolvePolicy(ctx, youtubepot.Request{
@@ -270,10 +279,10 @@ func resolveYouTubeCaptionTokens(ctx context.Context, candidates []youtubeCaptio
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
-			states[clientName] = youtubeCaptionTokenState{skip: request.required}
+			states[tokenKey] = youtubeCaptionTokenState{skip: request.required}
 			continue
 		}
-		states[clientName] = youtubeCaptionTokenState{token: token, ok: ok, skip: request.required && !ok}
+		states[tokenKey] = youtubeCaptionTokenState{token: token, ok: ok, skip: request.required && !ok}
 	}
 	return states, nil
 }

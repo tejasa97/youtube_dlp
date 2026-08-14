@@ -200,10 +200,22 @@ func TestYouTubeCaptionValidationBoundsAndHostRules(t *testing.T) {
 		t.Fatalf("duplicate tracks across clients = %#v, %v", result.subtitles, err)
 	}
 
+	repeated := youtubeCaptionPlayerFixture("https://www.youtube.com/api/timedtext?v=fixture0001")
+	repeated.Captions.Tracklist.CaptionTracks = make([]youtubeCaptionTrack, youtubeMaxCaptionTracks+1)
+	for index := range repeated.Captions.Tracklist.CaptionTracks {
+		repeated.Captions.Tracklist.CaptionTracks[index] = repeated.Captions.Tracklist.CaptionTracks[0]
+		repeated.Captions.Tracklist.CaptionTracks[index].BaseURL = "https://www.youtube.com/api/timedtext?v=fixture0001"
+		repeated.Captions.Tracklist.CaptionTracks[index].VssID = ".en"
+		repeated.Captions.Tracklist.CaptionTracks[index].Name.SimpleText = "English"
+	}
+	if result, err := normalizeYouTubeCaptions(context.Background(), []youtubePlayerResponse{repeated}, "fixture0001", nil, false); err != nil || result.subtitles.Len() != 1 {
+		t.Fatalf("repeated raw tracks = %#v, %v", result.subtitles, err)
+	}
+
 	tooMany := youtubeCaptionPlayerFixture("https://www.youtube.com/api/timedtext?v=fixture0001")
-	tooMany.Captions.Tracklist.CaptionTracks = make([]youtubeCaptionTrack, youtubeMaxCaptionTracks+1)
+	tooMany.Captions.Tracklist.CaptionTracks = make([]youtubeCaptionTrack, youtubeMaxRawCaptionTracks+1)
 	if _, err := normalizeYouTubeCaptions(context.Background(), []youtubePlayerResponse{tooMany}, "fixture0001", nil, false); !errors.Is(err, ErrInvalidMetadata) {
-		t.Fatalf("track limit = %v", err)
+		t.Fatalf("raw track safety limit = %v", err)
 	}
 	longText := youtubeCaptionPlayerFixture("https://www.youtube.com/api/timedtext?v=fixture0001")
 	longText.Captions.Tracklist.CaptionTracks[0].Name.SimpleText = strings.Repeat("x", youtubeMaxCaptionTextBytes+1)
@@ -217,6 +229,44 @@ func TestYouTubeCaptionValidationBoundsAndHostRules(t *testing.T) {
 	used := youtubeMaxCaptionOutputTotalBytes
 	if err := addYouTubeCaptionFormats(value.NewObject(), make(map[string]bool), "en", "English", youtubeCaptionCandidate{base: base, clientName: "WEB"}, youtubeCaptionTokenState{}, "", &used); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("output limit = %v", err)
+	}
+}
+
+func TestYouTubeCaptionCandidateFallbackAndDistinctResourceBound(t *testing.T) {
+	const sharedURL = "https://www.youtube.com/api/timedtext?v=fixture0001&lang=en"
+	required := youtubeCaptionPlayerFixture(sharedURL)
+	required.subsPolicy.Required = true
+	optional := youtubeCaptionPlayerFixture(sharedURL)
+	optional.clientName = "ANDROID"
+
+	result, err := normalizeYouTubeCaptions(context.Background(), []youtubePlayerResponse{required, optional}, "fixture0001", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := result.subtitles.Lookup("en").ListValue()
+	if len(entries) != len(youtubeSubtitleFormats) {
+		t.Fatalf("client fallback entries = %d", len(entries))
+	}
+
+	distinct := youtubeCaptionPlayerFixture(sharedURL)
+	distinct.Captions.Tracklist.CaptionTracks = make([]youtubeCaptionTrack, youtubeMaxCaptionTracks+16)
+	for index := range distinct.Captions.Tracklist.CaptionTracks {
+		track := youtubeCaptionTrack{BaseURL: fmt.Sprintf("https://www.youtube.com/api/timedtext?v=fixture%04d&lang=en", index), VssID: ".en", LanguageCode: "en"}
+		track.Name.SimpleText = "English"
+		distinct.Captions.Tracklist.CaptionTracks[index] = track
+	}
+	_, candidates, err := collectYouTubeCaptionCandidates([]youtubePlayerResponse{distinct})
+	if err != nil || len(candidates) != youtubeMaxCaptionTracks {
+		t.Fatalf("distinct candidates = %d, %v", len(candidates), err)
+	}
+
+	manual := youtubeCaptionPlayerFixture(sharedURL)
+	automatic := youtubeCaptionPlayerFixture(sharedURL)
+	automatic.Captions.Tracklist.CaptionTracks[0].VssID = ".a.en"
+	automatic.Captions.Tracklist.CaptionTracks[0].Kind = "asr"
+	both, err := normalizeYouTubeCaptions(context.Background(), []youtubePlayerResponse{manual, automatic}, "fixture0001", nil, false)
+	if err != nil || both.subtitles.Lookup("en").IsMissing() || both.automaticCaptions.Lookup("en").IsMissing() {
+		t.Fatalf("manual/automatic shared resource = %#v/%#v, %v", both.subtitles, both.automaticCaptions, err)
 	}
 }
 
