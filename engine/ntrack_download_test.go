@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -158,10 +159,12 @@ func TestNTrackMergePreservesPlannerOrder(t *testing.T) {
 	}
 }
 
-func TestNTrackHeaderIsolationConcurrent(t *testing.T) {
+func TestNTrackHeaderIsolationSequential(t *testing.T) {
 	requireFFmpegToolset(t)
 	const tracks = 3
 	var hits [tracks]atomic.Int32
+	var orderMu sync.Mutex
+	var order []int
 	servers := make([]*httptest.Server, tracks)
 	for index := range servers {
 		trackIndex := index
@@ -172,6 +175,9 @@ func TestNTrackHeaderIsolationConcurrent(t *testing.T) {
 				return
 			}
 			hits[trackIndex].Add(1)
+			orderMu.Lock()
+			order = append(order, trackIndex)
+			orderMu.Unlock()
 			_, _ = writer.Write([]byte("not-valid-media"))
 		}))
 	}
@@ -200,6 +206,9 @@ func TestNTrackHeaderIsolationConcurrent(t *testing.T) {
 		if hits[index].Load() != 1 {
 			t.Fatalf("track %d hits = %d, want 1", index, hits[index].Load())
 		}
+	}
+	if !slices.Equal(order, []int{0, 1, 2}) {
+		t.Fatalf("transfer order = %v, want [0 1 2]", order)
 	}
 }
 

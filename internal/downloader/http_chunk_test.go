@@ -29,6 +29,40 @@ func TestHTTPChunkRangeRandomizesWithinFivePercentWindow(t *testing.T) {
 	}
 }
 
+func TestHTTPChunkRangeAvoidsSingleWholeResourceRequest(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "https://media.example/small-video", nil)
+	job := Job{HTTPChunkSize: 10 << 20, ExpectedBytes: 6 << 20}
+	if err := setHTTPChunkRange(request, job, partialState{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := request.Header.Get("Range"); got != "bytes=0-3145727" {
+		t.Fatalf("range = %q", got)
+	}
+	if err := setHTTPChunkRange(request, job, partialState{}, 3<<20); err != nil {
+		t.Fatal(err)
+	}
+	if got := request.Header.Get("Range"); got != "bytes=3145728-6291455" {
+		t.Fatalf("final range = %q", got)
+	}
+}
+
+func TestHTTPChunkFixedUsesStableBoundaries(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "https://media.example/audio", nil)
+	job := Job{HTTPChunkSize: 1 << 20, HTTPChunkFixed: true, ExpectedBytes: 2<<20 + 1}
+	if err := setHTTPChunkRange(request, job, partialState{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := request.Header.Get("Range"); got != "bytes=0-1048575" {
+		t.Fatalf("range = %q", got)
+	}
+	if err := setHTTPChunkRange(request, job, partialState{}, 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	if got := request.Header.Get("Range"); got != "bytes=1048576-2097151" {
+		t.Fatalf("resumed range = %q", got)
+	}
+}
+
 func TestDownloadUsesBoundedHTTPChunksAndRetriesForbiddenChunk(t *testing.T) {
 	media := []byte("hello world")
 	var mu sync.Mutex

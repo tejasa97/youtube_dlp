@@ -82,6 +82,9 @@ type Job struct {
 	// HTTPChunkSize downloads direct media through consecutive bounded byte
 	// ranges. Some adaptive media endpoints reject unbounded requests.
 	HTTPChunkSize int64
+	// HTTPChunkFixed disables per-request size randomization for endpoints that
+	// require stable chunk boundaries.
+	HTTPChunkFixed bool
 	// ExpectedBytes lets a bounded initial range stop at the advertised end of
 	// the representation rather than requesting beyond it.
 	ExpectedBytes int64
@@ -802,17 +805,25 @@ func validateJob(job Job) error {
 
 func setHTTPChunkRange(request *http.Request, job Job, state partialState, offset int64) error {
 	size := job.HTTPChunkSize
-	if size >= 20 {
+	expected := job.ExpectedBytes
+	if state.Total > 0 {
+		expected = state.Total
+	}
+	fixed := job.HTTPChunkFixed
+	if expected > 1 && expected <= size {
+		// Avoid a single range that covers the complete representation. Some
+		// adaptive endpoints reject that shape even though smaller bounded ranges
+		// for the same signed URL succeed.
+		size = (expected + 1) / 2
+		fixed = true
+	}
+	if size >= 20 && !fixed {
 		minimum := size * 95 / 100
 		size = minimum + rand.Int64N(size-minimum+1)
 	}
 	end := offset + size - 1
 	if size <= 0 || end < offset {
 		return ErrInvalidLimits
-	}
-	expected := job.ExpectedBytes
-	if state.Total > 0 {
-		expected = state.Total
 	}
 	if expected > offset && end >= expected {
 		end = expected - 1

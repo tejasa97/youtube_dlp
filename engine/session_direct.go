@@ -796,6 +796,7 @@ func (run *directSession) download(ctx context.Context, boundary *downloader.Che
 	}
 	job := run.operation.directDownloadJob(run.selection.URL, run.selection.Headers, run.workspace.Path(), run.payload)
 	job.HTTPChunkSize = run.selection.HTTPChunkSize
+	job.HTTPChunkFixed = run.selection.HTTPChunkFixed
 	job.ExpectedBytes = run.selection.Filesize
 	job.OutputRoot = run.workspace.Path()
 	job.Destination = run.payload
@@ -803,6 +804,11 @@ func (run *directSession) download(ctx context.Context, boundary *downloader.Che
 	job.ResumeIdentity = run.identity
 	job.NoContinue = reset || run.operation.request.Filesystem.NoContinue
 	job.Checkpoint = &downloader.CheckpointOptions{ResumeBoundary: boundary, StateDirectory: filepath.Dir(run.checkpoint), OnCommit: run.commitCheckpoint}
+	releaseTransfer, err := run.operation.acquireGoogleVideoTransfer(ctx, run.selection.URL)
+	if err != nil {
+		return err
+	}
+	defer releaseTransfer()
 	returnResult, downloadErr := downloader.New(mediaTransport.(network.Doer)).Download(ctx, job, sink)
 	_ = returnResult
 	return downloadErr

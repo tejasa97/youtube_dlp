@@ -313,7 +313,7 @@ func objectSelection(object *value.Object) (Selection, error) {
 	selection.ACodec, _ = object.Lookup("acodec").StringValue()
 	selection.Height, _ = object.Lookup("height").Int()
 	selection.TBR, _ = numeric(object.Lookup("tbr"))
-	selection.HTTPChunkSize = formatHTTPChunkSize(object)
+	selection.HTTPChunkSize, selection.HTTPChunkFixed = formatHTTPChunkOptions(object)
 	selection.YouTubePostLive, _ = object.Lookup("_youtube_post_live").Bool()
 	selection.YouTubeLiveFromStart, _ = object.Lookup("_youtube_live_from_start").Bool()
 	selection.YouTubeItag, _ = object.Lookup("_youtube_itag").Int()
