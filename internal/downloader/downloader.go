@@ -646,6 +646,10 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 	if state.Total > 0 && written != state.Total {
 		if job.HTTPChunkSize > 0 && written > offset && response.StatusCode == http.StatusPartialContent {
 			response.Body.Close()
+			// NoContinue applies to the initial attempt only. Once this attempt has
+			// committed a bounded range, the next range must reload that checkpoint
+			// so offsets and caller callbacks remain cumulative.
+			job.NoContinue = false
 			return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
 		}
 		return Result{}, retryableError{fmt.Errorf("%w: got %d, want %d bytes", ErrIncomplete, written, state.Total)}

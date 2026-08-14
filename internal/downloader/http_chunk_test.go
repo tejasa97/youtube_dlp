@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/tejasa97/youtube_dlp/internal/network"
 )
@@ -26,6 +28,51 @@ func TestHTTPChunkRangeRandomizesWithinFivePercentWindow(t *testing.T) {
 		if err != nil || end < 94 || end > 99 {
 			t.Fatalf("range = %q; want randomized size in [95, 100]", request.Header.Get("Range"))
 		}
+	}
+}
+
+func TestHTTPChunkNoContinueReloadsCumulativeCheckpointBetweenRanges(t *testing.T) {
+	data := bytes.Repeat([]byte("chunk-checkpoint-fixture"), 150_000)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.ServeContent(writer, request, "media.bin", time.Time{}, bytes.NewReader(data))
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	destination := filepath.Join(root, "media.bin")
+	var committed int64
+	job := checkpointJob(destination, "direct:chunk:no-continue", &CheckpointOptions{
+		EveryBytes: minDirectCheckpointBytes,
+		OnCommit: func(_ context.Context, checkpoint Checkpoint) error {
+			if checkpoint.CommittedBytes < committed {
+				return fmt.Errorf("checkpoint regressed from %d to %d", committed, checkpoint.CommittedBytes)
+			}
+			committed = checkpoint.CommittedBytes
+			return nil
+		},
+	})
+	job.URL = server.URL
+	job.NoContinue = true
+	job.HTTPChunkSize = 1 << 20
+	job.HTTPChunkFixed = true
+	job.ExpectedBytes = int64(len(data))
+
+	doer := checkpointDoerFunc(func(ctx context.Context, request *http.Request) (*http.Response, error) {
+		return server.Client().Do(request.WithContext(ctx))
+	})
+	result, err := New(doer).Download(context.Background(), job, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bytes != int64(len(data)) || committed != int64(len(data)) {
+		t.Fatalf("result bytes/commit = %d/%d, want %d", result.Bytes, committed, len(data))
+	}
+	got, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatal("downloaded payload mismatch")
 	}
 }
 
