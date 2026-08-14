@@ -59,6 +59,11 @@ type Result = provider.ChallengeResult
 // player script skip the expensive meriyah-based preprocessing phase.
 // Concurrent requests for the same uncached player are coalesced via
 // singleflight coordination so preprocessing runs exactly once.
+//
+// Applications may create one solver per download job, so expensive distinct
+// player preprocessing is serialized process-wide rather than per Solver.
+var playerPreprocessSlot = make(chan struct{}, 1)
+
 type Solver struct {
 	executor Executor
 	script   string
@@ -215,6 +220,17 @@ func (solver *Solver) waitForFlight(ctx context.Context, inflight *call) (string
 
 // preprocess runs the expensive player parsing phase with an extended wall time.
 func (solver *Solver) preprocess(ctx context.Context, id, player string) (string, error) {
+	// Meriyah parsing is CPU- and memory-intensive. Running distinct player
+	// preprocessors concurrently can make otherwise valid scripts exceed the
+	// helper wall-time limit. Same-player calls are already coalesced above;
+	// serialize distinct cache misses while allowing cancellation while queued.
+	select {
+	case playerPreprocessSlot <- struct{}{}:
+		defer func() { <-playerPreprocessSlot }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+
 	input := struct {
 		Type               string             `json:"type"`
 		Player             string             `json:"player"`

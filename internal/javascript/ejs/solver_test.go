@@ -758,6 +758,58 @@ func TestLargeGeneratedPlayerWorkload(t *testing.T) {
 
 // --- Mock executors ---
 
+func TestDistinctPlayerPreprocessingIsSerializedAcrossSolvers(t *testing.T) {
+	executor := &blockingPreprocessExecutor{started: make(chan struct{}, 2), release: make(chan struct{}, 2)}
+	firstSolver, err := New(executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSolver, err := New(executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errs := make(chan error, 2)
+	go func() {
+		_, err := firstSolver.preprocess(context.Background(), "first", "var first = 1;")
+		errs <- err
+	}()
+	<-executor.started
+	go func() {
+		_, err := secondSolver.preprocess(context.Background(), "second", "var second = 2;")
+		errs <- err
+	}()
+
+	select {
+	case <-executor.started:
+		t.Fatal("distinct player preprocessing ran concurrently")
+	case <-time.After(50 * time.Millisecond):
+	}
+	executor.release <- struct{}{}
+	<-executor.started
+	executor.release <- struct{}{}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+type blockingPreprocessExecutor struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (executor *blockingPreprocessExecutor) Execute(ctx context.Context, request protocol.Request) protocol.Response {
+	executor.started <- struct{}{}
+	select {
+	case <-executor.release:
+		return protocol.Response{Version: protocol.Version, ID: request.ID, Result: json.RawMessage(`{"type":"result","preprocessed_player":"var solved = true;"}`)}
+	case <-ctx.Done():
+		return protocol.FailureResponse(request.ID, protocol.CodeTimeout, ctx.Err())
+	}
+}
+
 type countingExecutor struct {
 	inner Executor
 	mu    sync.Mutex
@@ -962,6 +1014,9 @@ func TestFlightOwnershipAbandonedDoesNotDeleteReplacement(t *testing.T) {
 	if callNum != 1 {
 		t.Fatalf("expected preprocess call 1, got %d", callNum)
 	}
+	solver.mu.Lock()
+	flight1 := solver.flight[playerHash]
+	solver.mu.Unlock()
 
 	// Cancel flight 1's waiter. The flight is abandoned, but the executor is
 	// still blocked on gate[0].
@@ -979,22 +1034,34 @@ func TestFlightOwnershipAbandonedDoesNotDeleteReplacement(t *testing.T) {
 		done2 <- err
 	}()
 
-	callNum = waitForEnter(t, gate.entered, 5*time.Second)
-	if callNum != 2 {
-		t.Fatalf("expected preprocess call 2, got %d", callNum)
+	// Wait until flight 2 owns the map entry. Distinct preprocessing work is
+	// serialized, so it cannot enter the executor until flight 1 releases the
+	// slot, but it must be admitted as the replacement first.
+	var flight2 *call
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		solver.mu.Lock()
+		current, exists := solver.flight[playerHash]
+		solver.mu.Unlock()
+		if exists && current != flight1 {
+			flight2 = current
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if flight2 == nil {
+		t.Fatal("flight 2 did not replace abandoned flight 1")
 	}
 
-	solver.mu.Lock()
-	flight2, owns2 := solver.flight[playerHash]
-	solver.mu.Unlock()
-	if !owns2 {
-		t.Fatal("flight 2 should own solver.flight[playerHash]")
-	}
-
-	// Phase 3: Release flight 1. Cleanup must not delete flight 2's entry.
+	// Release the abandoned executor call. Its cleanup must not delete the
+	// replacement flight that is already waiting for the preprocessing slot.
 	gate.release(1)
 	if completed := waitForCompleted(t, gate.completed, 5*time.Second); completed != 1 {
 		t.Fatalf("expected preprocess call 1 to complete, got %d", completed)
+	}
+	callNum = waitForEnter(t, gate.entered, 5*time.Second)
+	if callNum != 2 {
+		t.Fatalf("expected preprocess call 2, got %d", callNum)
 	}
 
 	solver.mu.Lock()
