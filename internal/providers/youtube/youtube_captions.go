@@ -59,6 +59,23 @@ type youtubeText struct {
 	} `json:"runs"`
 }
 
+type youtubeCaptionTokenKey struct {
+	clientName  string
+	visitorData string
+	playerURL   string
+	required    bool
+	recommended bool
+}
+
+type youtubeCaptionCandidateKey struct {
+	resourceKey  string
+	tokenKey     youtubeCaptionTokenKey
+	name         string
+	automatic    bool
+	translatable bool
+	kind         string
+}
+
 type youtubeCaptionCandidate struct {
 	base          *url.URL
 	language      string
@@ -71,7 +88,7 @@ type youtubeCaptionCandidate struct {
 	subsPolicy    youtubePOTPolicy
 	playerToken   bool
 	requiresToken bool
-	tokenKey      string
+	tokenKey      youtubeCaptionTokenKey
 }
 
 type youtubeCaptionTokenState struct {
@@ -171,7 +188,7 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 	translations := make([]youtubeTranslation, 0)
 	translationSeen := make(map[string]bool)
 	candidates := make([]youtubeCaptionCandidate, 0)
-	candidateSeen := make(map[string]bool)
+	candidateSeen := make(map[youtubeCaptionCandidateKey]bool)
 	resourceSeen := make(map[string]bool)
 	for _, player := range players {
 		tracklist := player.Captions.Tracklist
@@ -220,7 +237,11 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 				subsPolicy: player.subsPolicy, playerToken: player.playerTokenProvided,
 			}
 			candidate.requiresToken = youtubeCaptionURLRequiresToken(base) || candidate.subsPolicy.required(candidate.playerToken, false)
-			candidate.tokenKey = fmt.Sprintf("%s\x00%s\x00%s\x00%t\x00%t", candidate.clientName, candidate.visitorData, candidate.playerURL, candidate.requiresToken, candidate.subsPolicy.Recommended)
+			candidate.tokenKey = youtubeCaptionTokenKey{
+				clientName: candidate.clientName, visitorData: candidate.visitorData,
+				playerURL: candidate.playerURL, required: candidate.requiresToken,
+				recommended: candidate.subsPolicy.Recommended,
+			}
 
 			// The resource bound counts URLs, while candidate deduplication also
 			// includes the client/token context. Different clients can advertise the
@@ -233,7 +254,10 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 				}
 				resourceSeen[resourceKey] = true
 			}
-			key := fmt.Sprintf("%s\x00%s\x00%s\x00%t\x00%t\x00%s", resourceKey, candidate.tokenKey, candidate.name, candidate.automatic, candidate.translatable, track.Kind)
+			key := youtubeCaptionCandidateKey{
+				resourceKey: resourceKey, tokenKey: candidate.tokenKey, name: candidate.name,
+				automatic: candidate.automatic, translatable: candidate.translatable, kind: track.Kind,
+			}
 			if candidateSeen[key] {
 				continue
 			}
@@ -244,14 +268,14 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 	return translations, candidates, nil
 }
 
-func resolveYouTubeCaptionTokens(ctx context.Context, candidates []youtubeCaptionCandidate, videoID string, tokens *youtubepot.Director) (map[string]youtubeCaptionTokenState, error) {
+func resolveYouTubeCaptionTokens(ctx context.Context, candidates []youtubeCaptionCandidate, videoID string, tokens *youtubepot.Director) (map[youtubeCaptionTokenKey]youtubeCaptionTokenState, error) {
 	type clientRequest struct {
 		candidate   youtubeCaptionCandidate
 		required    bool
 		recommended bool
 	}
-	requests := make(map[string]clientRequest)
-	order := make([]string, 0)
+	requests := make(map[youtubeCaptionTokenKey]clientRequest)
+	order := make([]youtubeCaptionTokenKey, 0)
 	for _, candidate := range candidates {
 		request, exists := requests[candidate.tokenKey]
 		if !exists {
@@ -262,7 +286,7 @@ func resolveYouTubeCaptionTokens(ctx context.Context, candidates []youtubeCaptio
 		request.recommended = request.recommended || candidate.subsPolicy.Recommended
 		requests[candidate.tokenKey] = request
 	}
-	states := make(map[string]youtubeCaptionTokenState, len(requests))
+	states := make(map[youtubeCaptionTokenKey]youtubeCaptionTokenState, len(requests))
 	for _, tokenKey := range order {
 		request := requests[tokenKey]
 		clientName := request.candidate.clientName
