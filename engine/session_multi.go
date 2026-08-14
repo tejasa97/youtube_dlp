@@ -624,6 +624,8 @@ func (run *multiTrackSession) downloadTrack(ctx context.Context, track multiTrac
 		mediaTransport = newProviderPolicyTransport(run.operation, track.selection.MediaPolicy, "media")
 	}
 	job := run.operation.directDownloadJob(track.selection.URL, track.selection.Headers, run.workspace.Path(), track.payload)
+	job.HTTPChunkSize = track.selection.HTTPChunkSize
+	job.ExpectedBytes = track.selection.Filesize
 	job.OutputRoot = run.workspace.Path()
 	job.Destination = track.payload
 	job.Overwrite = true

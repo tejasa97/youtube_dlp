@@ -568,6 +568,8 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		return destination, info.Size(), nil
 	default:
 		job := operation.directDownloadJob(selected.URL, selected.Headers, outputRoot, destination)
+		job.HTTPChunkSize = selected.HTTPChunkSize
+		job.ExpectedBytes = selected.Filesize
 		job.ResumeIdentity = nTrackResumeIdentity(selected)
 		result, err := downloader.New(mediaTransport.(network.Doer)).Download(ctx, job, sink)
 		if err != nil {

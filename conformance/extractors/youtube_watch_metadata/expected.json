@@ -22,7 +22,10 @@
       "quality": 6,
       "format_note": "360p",
       "source_preference": -1,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     }
   ],
   "channel_url": "https://www.youtube.com/channel/UCfixture000000000000000",

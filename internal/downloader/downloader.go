@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -78,6 +79,12 @@ type Job struct {
 	// RateLimit is an optional sustained byte/second limit. It is applied
 	// while writing, so resumed downloads and unknown-length responses obey it.
 	RateLimit int64
+	// HTTPChunkSize downloads direct media through consecutive bounded byte
+	// ranges. Some adaptive media endpoints reject unbounded requests.
+	HTTPChunkSize int64
+	// ExpectedBytes lets a bounded initial range stop at the advertised end of
+	// the representation rather than requesting beyond it.
+	ExpectedBytes int64
 	// MaxBytes bounds a response even where the server omits Content-Length.
 	// Zero means the direct downloader's conservative 8 GiB ceiling.
 	MaxBytes int64
@@ -345,15 +352,47 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 	if job.Headers != nil {
 		request.Header = job.Headers.Clone()
 	}
-	if offset > 0 {
+	if job.HTTPChunkSize <= 0 && offset > 0 {
 		request.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+	}
+	if offset > 0 {
 		if state.ETag != "" {
 			request.Header.Set("If-Range", state.ETag)
 		} else if state.LastModified != "" {
 			request.Header.Set("If-Range", state.LastModified)
 		}
 	}
-	response, err := downloader.transport.Do(ctx, request)
+	var response *http.Response
+	chunkStatusAttempts := 1
+	if job.HTTPChunkSize > 0 {
+		chunkStatusAttempts = job.Attempts
+		if chunkStatusAttempts <= 0 {
+			chunkStatusAttempts = 3
+		}
+	}
+	for attempt := 1; attempt <= chunkStatusAttempts; attempt++ {
+		if job.HTTPChunkSize > 0 {
+			if err = setHTTPChunkRange(request, job, state, offset); err != nil {
+				return Result{}, err
+			}
+		}
+		response, err = downloader.transport.Do(ctx, request)
+		if err != nil {
+			break
+		}
+		if response.StatusCode != http.StatusForbidden || job.HTTPChunkSize <= 0 || attempt == chunkStatusAttempts {
+			break
+		}
+		response.Body.Close()
+		delay := retryDelay(job, attempt)
+		minimum := time.Duration(attempt) * 500 * time.Millisecond
+		if delay < minimum {
+			delay = minimum
+		}
+		if err = downloader.sleep(ctx, delay); err != nil {
+			return Result{}, err
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return Result{}, ctx.Err()
@@ -370,6 +409,9 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
 		err := &HTTPStatusError{Code: response.StatusCode}
+		if job.HTTPChunkSize > 0 && response.StatusCode == http.StatusForbidden {
+			return Result{}, retryableError{err}
+		}
 		if network.RetryableStatus(response.StatusCode) {
 			return Result{}, retryableError{err}
 		}
@@ -599,6 +641,10 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 		}
 	}
 	if state.Total > 0 && written != state.Total {
+		if job.HTTPChunkSize > 0 && written > offset && response.StatusCode == http.StatusPartialContent {
+			response.Body.Close()
+			return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+		}
 		return Result{}, retryableError{fmt.Errorf("%w: got %d, want %d bytes", ErrIncomplete, written, state.Total)}
 	}
 	if response.Header.Get("Content-Encoding") == "" && job.MinFilesize > 0 && written < job.MinFilesize {
@@ -745,12 +791,33 @@ func validateJob(job Job) error {
 	if job.MinFilesize < 0 || job.MaxFilesize < 0 {
 		return fmt.Errorf("%w: negative file size bound", ErrInvalidLimits)
 	}
-	if job.Attempts < 0 || job.RetryBaseDelay < 0 || job.RetryMaxDelay < 0 || job.RetryBaseDelay > maxDirectRetryDelay || job.RetryMaxDelay > maxDirectRetryDelay || (job.RetryBaseDelay > 0 && job.RetryMaxDelay > 0 && job.RetryBaseDelay > job.RetryMaxDelay) || job.RateLimit < 0 || job.MaxBytes < 0 || job.MaxBytes > maxDirectBytes || job.ThrottleRate < 0 || job.ThrottleWindow < 0 || job.ThrottleWindow > maxDirectRetryDelay || job.ThrottleRestarts < 0 || job.ThrottleRestarts > maxDirectRestarts || job.FileAttempts < 0 || job.FileAttempts > maxDirectFileRetries {
+	if job.Attempts < 0 || job.RetryBaseDelay < 0 || job.RetryMaxDelay < 0 || job.RetryBaseDelay > maxDirectRetryDelay || job.RetryMaxDelay > maxDirectRetryDelay || (job.RetryBaseDelay > 0 && job.RetryMaxDelay > 0 && job.RetryBaseDelay > job.RetryMaxDelay) || job.RateLimit < 0 || job.MaxBytes < 0 || job.MaxBytes > maxDirectBytes || job.HTTPChunkSize < 0 || job.HTTPChunkSize > maxDirectBytes || job.ExpectedBytes < 0 || job.ExpectedBytes > maxDirectBytes || job.ThrottleRate < 0 || job.ThrottleWindow < 0 || job.ThrottleWindow > maxDirectRetryDelay || job.ThrottleRestarts < 0 || job.ThrottleRestarts > maxDirectRestarts || job.FileAttempts < 0 || job.FileAttempts > maxDirectFileRetries {
 		return ErrInvalidLimits
 	}
 	if _, err := checkpointPlanForJob(job); err != nil {
 		return err
 	}
+	return nil
+}
+
+func setHTTPChunkRange(request *http.Request, job Job, state partialState, offset int64) error {
+	size := job.HTTPChunkSize
+	if size >= 20 {
+		minimum := size * 95 / 100
+		size = minimum + rand.Int64N(size-minimum+1)
+	}
+	end := offset + size - 1
+	if size <= 0 || end < offset {
+		return ErrInvalidLimits
+	}
+	expected := job.ExpectedBytes
+	if state.Total > 0 {
+		expected = state.Total
+	}
+	if expected > offset && end >= expected {
+		end = expected - 1
+	}
+	request.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, end))
 	return nil
 }
 

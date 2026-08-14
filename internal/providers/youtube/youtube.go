@@ -22,7 +22,10 @@ import (
 	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
-const youtubePlayerMarker = "ytInitialPlayerResponse"
+const (
+	youtubePlayerMarker  = "ytInitialPlayerResponse"
+	youtubeHTTPChunkSize = 10 << 20
+)
 
 var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
@@ -294,6 +297,9 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			continue
 		}
 		if normalized, ok := normalizeYouTubeFormat(format, duration, hasDuration); ok {
+			normalized.Set("downloader_options", value.ObjectValue(value.NewObject(
+				value.Field{Key: "http_chunk_size", Value: value.Int(youtubeHTTPChunkSize)},
+			)))
 			if activeFromStart {
 				normalized.Set("protocol", value.String("http_dash_segments_generator"))
 				normalized.Set("target_duration", value.Float(format.TargetDurationSec))

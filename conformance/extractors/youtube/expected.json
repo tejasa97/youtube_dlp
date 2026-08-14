@@ -21,7 +21,10 @@
       "height": 360,
       "fps": 30,
       "source_preference": -1,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "140",
@@ -34,7 +37,10 @@
       "quality": -1,
       "tbr": 128,
       "source_preference": -1,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "hls",

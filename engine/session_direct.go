@@ -795,6 +795,8 @@ func (run *directSession) download(ctx context.Context, boundary *downloader.Che
 		mediaTransport = newProviderPolicyTransport(run.operation, run.selection.MediaPolicy, "media")
 	}
 	job := run.operation.directDownloadJob(run.selection.URL, run.selection.Headers, run.workspace.Path(), run.payload)
+	job.HTTPChunkSize = run.selection.HTTPChunkSize
+	job.ExpectedBytes = run.selection.Filesize
 	job.OutputRoot = run.workspace.Path()
 	job.Destination = run.payload
 	job.Overwrite = true

@@ -24,7 +24,10 @@
       "quality": 6,
       "format_note": "360p",
       "source_preference": -1,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "22",
@@ -40,7 +43,10 @@
       "quality": 8,
       "format_note": "720p",
       "source_preference": -5,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "137",
@@ -57,7 +63,10 @@
       "quality": 9,
       "format_note": "1080p",
       "source_preference": -1,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "140",
@@ -74,6 +83,9 @@
       "format_note": "English, (default), medium",
       "source_preference": -1,
       "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
       "language": "en",
       "language_preference": 5
     },
@@ -90,6 +102,9 @@
       "format_note": "English (United States), medium",
       "source_preference": -1,
       "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
       "language": "en-US",
       "language_preference": -1
     },
@@ -106,6 +121,9 @@
       "format_note": "Spanish (original), high",
       "source_preference": -1,
       "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
       "language": "es",
       "language_preference": 10
     },
@@ -125,7 +143,10 @@
       "quality": 11,
       "format_note": "2160p",
       "source_preference": -1,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "601-drc",
@@ -142,7 +163,10 @@
       "quality": 8.5,
       "format_note": "1080p, DRC",
       "source_preference": -1,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "272-sr",
@@ -159,7 +183,10 @@
       "quality": 11,
       "format_note": "2160p, AI-upscaled",
       "source_preference": -1,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "802",
@@ -176,7 +203,10 @@
       "quality": 9,
       "format_note": "1080p Premium",
       "source_preference": 99,
-      "has_drm": false
+      "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      }
     },
     {
       "format_id": "160",
@@ -195,6 +225,9 @@
       "format_note": "144p, DAMAGED",
       "source_preference": -1,
       "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
       "preference": -10
     },
     {
@@ -211,6 +244,9 @@
       "format_note": "144p",
       "source_preference": -1,
       "has_drm": false,
+      "downloader_options": {
+        "http_chunk_size": 10485760
+      },
       "preference": -2
     }
   ],
