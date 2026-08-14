@@ -15,13 +15,18 @@ func isGoogleVideoMediaURL(rawURL string) bool {
 	return host == "googlevideo.com" || strings.HasSuffix(host, ".googlevideo.com")
 }
 
+// googleVideoTransfers is process-wide because applications may create one
+// engine client per job. GVS sees those jobs as concurrent request streams
+// regardless of which Client authored them.
+var googleVideoTransfers = make(chan struct{}, 1)
+
 func (client *Client) acquireGoogleVideoTransfer(ctx context.Context, rawURL string) (func(), error) {
-	if client == nil || client.gvsTransfers == nil || !isGoogleVideoMediaURL(rawURL) {
+	if !isGoogleVideoMediaURL(rawURL) {
 		return func() {}, nil
 	}
 	select {
-	case client.gvsTransfers <- struct{}{}:
-		return func() { <-client.gvsTransfers }, nil
+	case googleVideoTransfers <- struct{}{}:
+		return func() { <-googleVideoTransfers }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

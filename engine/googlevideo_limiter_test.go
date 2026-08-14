@@ -7,21 +7,22 @@ import (
 	"time"
 )
 
-func TestGoogleVideoTransferLimiterSerializesAndPreservesCancellation(t *testing.T) {
-	client := NewClient(Composition{})
-	release, err := client.acquireGoogleVideoTransfer(context.Background(), "https://rr1---sn.example.googlevideo.com/videoplayback")
+func TestGoogleVideoTransferLimiterSerializesAcrossClientsAndPreservesCancellation(t *testing.T) {
+	firstClient := NewClient(Composition{})
+	secondClient := NewClient(Composition{})
+	release, err := firstClient.acquireGoogleVideoTransfer(context.Background(), "https://rr1---sn.example.googlevideo.com/videoplayback")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()
-	if _, err := client.acquireGoogleVideoTransfer(ctx, "https://rr2---sn.example.googlevideo.com/videoplayback"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := secondClient.acquireGoogleVideoTransfer(ctx, "https://rr2---sn.example.googlevideo.com/videoplayback"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("queued acquisition error = %v", err)
 	}
 
 	release()
-	releaseNext, err := client.acquireGoogleVideoTransfer(context.Background(), "https://rr2---sn.example.googlevideo.com/videoplayback")
+	releaseNext, err := secondClient.acquireGoogleVideoTransfer(context.Background(), "https://rr2---sn.example.googlevideo.com/videoplayback")
 	if err != nil {
 		t.Fatal(err)
 	}

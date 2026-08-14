@@ -497,14 +497,10 @@ type Client struct {
 
 	solverMu     sync.Mutex
 	sharedSolver *lazyChallengeSolver
-	gvsTransfers chan struct{}
 }
 
 func NewClient(composition Composition, options ...Option) *Client {
-	client := &Client{
-		composition:  composition,
-		gvsTransfers: make(chan struct{}, 1),
-	}
+	client := &Client{composition: composition}
 	for _, option := range options {
 		if option != nil {
 			option(client)
