@@ -191,6 +191,15 @@ func TestYouTubeCaptionValidationBoundsAndHostRules(t *testing.T) {
 		}
 	}
 
+	duplicate := youtubeCaptionPlayerFixture("https://www.youtube.com/api/timedtext?v=fixture0001")
+	players := make([]youtubePlayerResponse, youtubeMaxCaptionPlayers)
+	for index := range players {
+		players[index] = duplicate
+	}
+	if result, err := normalizeYouTubeCaptions(context.Background(), players, "fixture0001", nil, false); err != nil || result.subtitles.Len() != 1 {
+		t.Fatalf("duplicate tracks across clients = %#v, %v", result.subtitles, err)
+	}
+
 	tooMany := youtubeCaptionPlayerFixture("https://www.youtube.com/api/timedtext?v=fixture0001")
 	tooMany.Captions.Tracklist.CaptionTracks = make([]youtubeCaptionTrack, youtubeMaxCaptionTracks+1)
 	if _, err := normalizeYouTubeCaptions(context.Background(), []youtubePlayerResponse{tooMany}, "fixture0001", nil, false); !errors.Is(err, ErrInvalidMetadata) {

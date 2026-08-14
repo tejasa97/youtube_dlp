@@ -168,10 +168,10 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 	translations := make([]youtubeTranslation, 0)
 	translationSeen := make(map[string]bool)
 	candidates := make([]youtubeCaptionCandidate, 0)
+	candidateSeen := make(map[string]bool)
 	for _, player := range players {
 		tracklist := player.Captions.Tracklist
-		if len(tracklist.CaptionTracks) > youtubeMaxCaptionTracks || len(tracklist.TranslationLanguages) > youtubeMaxTranslationLanguages ||
-			len(candidates)+len(tracklist.CaptionTracks) > youtubeMaxCaptionTracks {
+		if len(tracklist.CaptionTracks) > youtubeMaxCaptionTracks || len(tracklist.TranslationLanguages) > youtubeMaxTranslationLanguages {
 			return nil, nil, fmt.Errorf("%w: YouTube caption resource limit", ErrInvalidMetadata)
 		}
 		for _, language := range tracklist.TranslationLanguages {
@@ -207,6 +207,20 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 				return nil, nil, textErr
 			}
 			if !validYouTubeCaptionLanguage(language) || name == "" {
+				continue
+			}
+			// Multiple player clients commonly return the same caption track. Count
+			// only distinct resources toward the global bound so ordinary videos do
+			// not fail merely because metadata recovery queried several clients.
+			key := language + "\x00" + base.String()
+			if candidateSeen[key] {
+				continue
+			}
+			candidateSeen[key] = true
+			if len(candidates) >= youtubeMaxCaptionTracks {
+				// Captions are optional extraction metadata. Keep the bounded set
+				// already collected instead of failing an otherwise downloadable video
+				// when several clients advertise different URLs for the same tracks.
 				continue
 			}
 			candidate := youtubeCaptionCandidate{
