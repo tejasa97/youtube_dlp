@@ -758,21 +758,25 @@ func TestLargeGeneratedPlayerWorkload(t *testing.T) {
 
 // --- Mock executors ---
 
-func TestDistinctPlayerPreprocessingIsSerialized(t *testing.T) {
+func TestDistinctPlayerPreprocessingIsSerializedAcrossSolvers(t *testing.T) {
 	executor := &blockingPreprocessExecutor{started: make(chan struct{}, 2), release: make(chan struct{}, 2)}
-	solver, err := New(executor)
+	firstSolver, err := New(executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSolver, err := New(executor)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	errs := make(chan error, 2)
 	go func() {
-		_, err := solver.preprocess(context.Background(), "first", "var first = 1;")
+		_, err := firstSolver.preprocess(context.Background(), "first", "var first = 1;")
 		errs <- err
 	}()
 	<-executor.started
 	go func() {
-		_, err := solver.preprocess(context.Background(), "second", "var second = 2;")
+		_, err := secondSolver.preprocess(context.Background(), "second", "var second = 2;")
 		errs <- err
 	}()
 
