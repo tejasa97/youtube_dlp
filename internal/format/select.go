@@ -36,6 +36,10 @@ type Selection struct {
 	Height   int64
 	TBR      float64
 	Headers  http.Header
+	// HTTPChunkSize requests bounded byte ranges for direct HTTP media. It is
+	// extractor-authored and zero retains a single streaming request.
+	HTTPChunkSize  int64
+	HTTPChunkFixed bool
 	// CredentialIsolated requires isolated no-redirect transport for media
 	// fetches so ambient cookies, authorization, and referer cannot leak.
 	CredentialIsolated bool
@@ -143,6 +147,19 @@ func (selection Selection) NormalizedFormatIndex() (int, bool) {
 	return selection.normalizedIndex, selection.normalizedKnown
 }
 
+func formatHTTPChunkOptions(object *value.Object) (int64, bool) {
+	if object == nil {
+		return 0, false
+	}
+	options, ok := object.Lookup("downloader_options").Object()
+	if !ok {
+		return 0, false
+	}
+	size, _ := options.Lookup("http_chunk_size").Int()
+	fixed, _ := options.Lookup("http_chunk_fixed").Bool()
+	return size, fixed
+}
+
 func (selection *Selection) setNormalizedFormatIndex(index int) {
 	if selection == nil {
 		return
@@ -231,6 +248,7 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.ACodec, _ = object.Lookup("acodec").StringValue()
 		selection.Height, _ = object.Lookup("height").Int()
 		selection.TBR, _ = numeric(object.Lookup("tbr"))
+		selection.HTTPChunkSize, selection.HTTPChunkFixed = formatHTTPChunkOptions(object)
 		selection.YouTubePostLive, _ = object.Lookup("_youtube_post_live").Bool()
 		selection.YouTubeLiveFromStart, _ = object.Lookup("_youtube_live_from_start").Bool()
 		selection.YouTubeItag, _ = object.Lookup("_youtube_itag").Int()

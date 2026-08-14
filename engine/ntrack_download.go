@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/tejasa97/youtube_dlp/internal/events"
 	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
 	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
 )
-
-const maxTrackDownloadConcurrency = 4
 
 func (operation *operation) mergeOutputPreferences() []string {
 	if operation == nil {
@@ -88,66 +85,27 @@ func (operation *operation) downloadAndMergeTracks(
 	}()
 
 	serializedSink := &lockedEventSink{sink: sink}
-	childCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	type outcome struct {
-		index int
-		path  string
-		bytes int64
-		err   error
-	}
-	outcomes := make(chan outcome, len(selections))
-	sem := make(chan struct{}, maxTrackDownloadConcurrency)
-	var wg sync.WaitGroup
-	for index, selection := range selections {
-		wg.Add(1)
-		go func(index int, selection mediaformat.Selection) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-childCtx.Done():
-				outcomes <- outcome{index: index, err: childCtx.Err()}
-				return
-			}
-			track := trackTemporaryPath(workspace, index, selection.Ext)
-			if size, reusable, reuseErr := reusableNTrack(track); reuseErr != nil {
-				outcomes <- outcome{index: index, err: reuseErr}
-				return
-			} else if reusable {
-				_ = serializedSink.Emit(childCtx, events.Event{
-					Kind: events.KindCompleted, Path: track,
-					Bytes: size, Total: size, Resuming: true,
-				})
-				outcomes <- outcome{index: index, path: track, bytes: size}
-				return
-			}
-			path, count, downloadErr := operation.downloadSelection(
-				childCtx, isolatedSelection(selection), workspace, track, serializedSink)
-			outcomes <- outcome{index: index, path: path, bytes: count, err: downloadErr}
-		}(index, selection)
-	}
-	go func() {
-		wg.Wait()
-		close(outcomes)
-	}()
-
 	paths := make([]string, len(selections))
-	var firstErr error
-	for result := range outcomes {
-		if result.err != nil && firstErr == nil {
-			firstErr = result.err
-			cancel()
+	for index, selection := range selections {
+		track := trackTemporaryPath(workspace, index, selection.Ext)
+		if size, reusable, reuseErr := reusableNTrack(track); reuseErr != nil {
+			return "", 0, reuseErr
+		} else if reusable {
+			_ = serializedSink.Emit(ctx, events.Event{
+				Kind: events.KindCompleted, Path: track,
+				Bytes: size, Total: size, Resuming: true,
+			})
+			paths[index] = track
+			continue
 		}
-		if result.err == nil {
-			paths[result.index] = result.path
+		path, _, downloadErr := operation.downloadSelection(
+			ctx, isolatedSelection(selection), workspace, track, serializedSink)
+		if downloadErr != nil {
+			preserveWorkspace = operation.request.Filesystem.PreservePartialOnCancel &&
+				!operation.request.Filesystem.NoContinue && ctx.Err() != nil
+			return "", 0, downloadErr
 		}
-	}
-	if firstErr != nil {
-		preserveWorkspace = operation.request.Filesystem.PreservePartialOnCancel &&
-			!operation.request.Filesystem.NoContinue && ctx.Err() != nil
-		return "", 0, firstErr
+		paths[index] = path
 	}
 
 	mergeInputs := make([]ffmpeg.MergeInput, len(selections))
@@ -163,7 +121,7 @@ func (operation *operation) downloadAndMergeTracks(
 	if err != nil {
 		return "", 0, err
 	}
-	if err := tools.MergeTracks(childCtx, mergeInputs, destination, operation.request.Overwrite, serializedSink); err != nil {
+	if err := tools.MergeTracks(ctx, mergeInputs, destination, operation.request.Overwrite, serializedSink); err != nil {
 		preserveWorkspace = operation.request.Filesystem.PreservePartialOnCancel &&
 			!operation.request.Filesystem.NoContinue && ctx.Err() != nil
 		return "", 0, err

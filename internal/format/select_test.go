@@ -20,6 +20,9 @@ func TestBestSelectsFirstDownloadableFormat(t *testing.T) {
 			value.Field{Key: "_youtube_source_url", Value: value.String("https://www.youtube.com/watch?v=fixture0001")},
 			value.Field{Key: "target_duration", Value: value.Float(5)},
 			value.Field{Key: "live_start_timestamp", Value: value.Int(1234)},
+			value.Field{Key: "downloader_options", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "http_chunk_size", Value: value.Int(10 << 20)},
+			))},
 		)),
 	)}))
 	selected, err := Best(info)
@@ -29,7 +32,7 @@ func TestBestSelectsFirstDownloadableFormat(t *testing.T) {
 	if selected.ID != "best" || selected.Ext != "mp4" || !selected.YouTubePostLive || !selected.YouTubeLiveFromStart ||
 		selected.YouTubeItag != 137 || selected.YouTubeClient != "WEB" ||
 		selected.YouTubeSourceURL != "https://www.youtube.com/watch?v=fixture0001" ||
-		selected.TargetDuration != 5 || selected.LiveStartTimestamp != 1234 {
+		selected.TargetDuration != 5 || selected.LiveStartTimestamp != 1234 || selected.HTTPChunkSize != 10<<20 {
 		t.Fatalf("selection = %#v", selected)
 	}
 }

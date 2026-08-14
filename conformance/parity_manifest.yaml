@@ -2725,7 +2725,7 @@ capabilities:
       - internal/cli.TestRunInteractiveFormatUnavailableThenValid
       - internal/cli.TestRunInteractiveFormatEOFAndJSONChannelIsolation
       - engine.TestNTrackMergeRealMediaTwoTrack
-      - engine.TestNTrackHeaderIsolationConcurrent
+      - engine.TestNTrackHeaderIsolationSequential
       - engine.TestNTrackSiblingCancellationPreservesRootError
       - engine.TestMergeAllProductExecution
       - engine.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation

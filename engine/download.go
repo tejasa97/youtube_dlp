@@ -568,7 +568,15 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		return destination, info.Size(), nil
 	default:
 		job := operation.directDownloadJob(selected.URL, selected.Headers, outputRoot, destination)
+		job.HTTPChunkSize = selected.HTTPChunkSize
+		job.HTTPChunkFixed = selected.HTTPChunkFixed
+		job.ExpectedBytes = selected.Filesize
 		job.ResumeIdentity = nTrackResumeIdentity(selected)
+		releaseTransfer, err := operation.acquireGoogleVideoTransfer(ctx, selected.URL)
+		if err != nil {
+			return "", 0, err
+		}
+		defer releaseTransfer()
 		result, err := downloader.New(mediaTransport.(network.Doer)).Download(ctx, job, sink)
 		if err != nil {
 			if selected.CredentialIsolated && !preservePartialDownload(err, operation.request.Filesystem.PreservePartialOnCancel) {

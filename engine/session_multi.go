@@ -624,6 +624,9 @@ func (run *multiTrackSession) downloadTrack(ctx context.Context, track multiTrac
 		mediaTransport = newProviderPolicyTransport(run.operation, track.selection.MediaPolicy, "media")
 	}
 	job := run.operation.directDownloadJob(track.selection.URL, track.selection.Headers, run.workspace.Path(), track.payload)
+	job.HTTPChunkSize = track.selection.HTTPChunkSize
+	job.HTTPChunkFixed = track.selection.HTTPChunkFixed
+	job.ExpectedBytes = track.selection.Filesize
 	job.OutputRoot = run.workspace.Path()
 	job.Destination = track.payload
 	job.Overwrite = true
@@ -635,6 +638,11 @@ func (run *multiTrackSession) downloadTrack(ctx context.Context, track multiTrac
 			return run.commitTrackCheckpoint(commitCtx, track, checkpoint)
 		},
 	}
+	releaseTransfer, err := run.operation.acquireGoogleVideoTransfer(ctx, track.selection.URL)
+	if err != nil {
+		return err
+	}
+	defer releaseTransfer()
 	_, downloadErr := downloader.New(mediaTransport.(network.Doer)).Download(ctx, job, sink)
 	return downloadErr
 }
@@ -686,46 +694,20 @@ func (run *multiTrackSession) downloadTracks(ctx context.Context, sink events.Si
 	if len(jobs) == 0 {
 		return nil
 	}
-	childCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	type outcome struct{ err error }
-	outcomes := make(chan outcome, len(jobs))
-	var wait sync.WaitGroup
 	for _, job := range jobs {
-		wait.Add(1)
-		go func(job trackJob) {
-			defer wait.Done()
-			err := run.downloadTrack(childCtx, job.track, job.boundary, job.reset, serializedSink)
-			if errors.Is(err, downloader.ErrCheckpointResetRequired) || errors.Is(err, downloader.ErrCheckpointReconciliation) || errors.Is(err, downloader.ErrInvalidCheckpointState) {
-				if childCtx.Err() == nil && ctx.Err() == nil {
-					if resetErr := run.resetTrackEvidenceAndManifest(job.track); resetErr != nil {
-						err = errors.Join(err, resetErr)
-					} else {
-						err = run.downloadTrack(childCtx, job.track, nil, true, serializedSink)
-					}
+		err := run.downloadTrack(ctx, job.track, job.boundary, job.reset, serializedSink)
+		if errors.Is(err, downloader.ErrCheckpointResetRequired) || errors.Is(err, downloader.ErrCheckpointReconciliation) || errors.Is(err, downloader.ErrInvalidCheckpointState) {
+			if ctx.Err() == nil {
+				if resetErr := run.resetTrackEvidenceAndManifest(job.track); resetErr != nil {
+					err = errors.Join(err, resetErr)
+				} else {
+					err = run.downloadTrack(ctx, job.track, nil, true, serializedSink)
 				}
 			}
-			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-				cancel()
-			}
-			outcomes <- outcome{err: err}
-		}(job)
-	}
-	go func() {
-		wait.Wait()
-		close(outcomes)
-	}()
-	var firstErr error
-	for result := range outcomes {
-		if result.err == nil {
-			continue
 		}
-		if firstErr == nil || (isContextCancellation(firstErr) && !isContextCancellation(result.err)) {
-			firstErr = result.err
+		if err != nil {
+			return fmt.Errorf("multi-track transfer: %w", err)
 		}
-	}
-	if firstErr != nil {
-		return fmt.Errorf("multi-track transfer: %w", firstErr)
 	}
 	return nil
 }
