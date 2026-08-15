@@ -2,10 +2,10 @@
 
 All notable user-visible changes to `ytdlp-go` will be documented in this file.
 
-The project is pre-release. Until a versioned public release is published,
-changes are collected under **Unreleased**. Historical engineering phases and
-capability evidence are documented separately and are not reconstructed here
-as fictional releases.
+The project is pre-release. Versioned module tags may be published without
+endorsed public binaries. Changes not yet in a tagged release are collected
+under **Unreleased**. Historical engineering phases and capability evidence
+are documented separately and are not reconstructed here as fictional releases.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Published version identifiers follow the compatibility policy for the relevant
@@ -15,25 +15,36 @@ interface maturity.
 
 ### Added
 
-- A Wails-based Desktop preview for single public YouTube videos, with quality
-  presets, FIFO queueing, progress, cancellation, retry, history, settings, and
-  FFmpeg detection.
-- Public documentation paths for Desktop usage, installation, CLI workflows,
-  troubleshooting, architecture, project status, and current scope.
+- No entries yet.
 
 ### Changed
 
-- The root README now presents Desktop, CLI, and Go API as interfaces over one
-  native engine and keeps detailed engineering evidence in focused documents.
+- No entries yet.
 
 ### Fixed
 
-- YouTube JavaScript challenge timeouts are surfaced in Desktop with an
-  actionable retry message instead of a generic network or unsupported error.
+- No entries yet.
 
 ### Security
 
 - No entries yet.
+
+## [0.2.1] - 2026-08-15
+
+### Added
+
+- Resume for finite HLS and static DASH sessions on the public resumable
+  session facade.
+- Restart-safe FFmpeg processing workspaces so pause and resume can recover
+  post-processing without restarting from scratch.
+- Staged session publication and multi-track recovery for direct downloads.
+
+### Fixed
+
+- Concurrent YouTube player preprocessing is serialized so parallel analyses
+  no longer race the shared player pipeline.
+- Adaptive YouTube media downloads use bounded byte ranges.
+- Duplicate YouTube caption resources are collapsed before download.
 
 ## Release-note policy
 
@@ -49,3 +60,6 @@ Add an entry when a change affects:
 
 Pure test refactors, fixture maintenance, and internal evidence changes do not
 need a changelog entry unless they alter an observable claim.
+
+[Unreleased]: https://github.com/tejasa97/youtube_dlp/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/tejasa97/youtube_dlp/compare/v0.2.0...v0.2.1
