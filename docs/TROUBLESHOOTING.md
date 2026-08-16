@@ -16,10 +16,10 @@ sharing diagnostics.
 
 ## A URL is rejected by VidStow
 
-VidStow currently accepts only one public, on-demand YouTube video. Playlists,
-channels, search pages, Shorts, live streams, authenticated videos, and other
+VidStow currently accepts public, on-demand YouTube video, Short, and playlist
+URLs. Channels, search pages, live streams, authenticated videos, and other
 sites are outside its current scope. VidStow is independently versioned; check
-the [VidStow repository](https://github.com/tejasa97/vidstow) for its current
+the [VidStow repository](https://github.com/vidstow/vidstow) for its current
 product documentation and issue tracker.
 
 If the engine supports the input, try the CLI instead and consult
@@ -134,7 +134,7 @@ diagnostics.
 
 VidStow owns its platform requirements, Wails/WebKit guidance, settings and
 history format, and application packaging. Use the
-[VidStow issue tracker](https://github.com/tejasa97/vidstow/issues) for those
+[VidStow issue tracker](https://github.com/vidstow/vidstow/issues) for those
 problems. Engine or provider defects reproducible through this repository's CLI
 or public Go packages belong here.
 

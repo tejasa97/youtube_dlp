@@ -14,7 +14,7 @@ guidance is separated from compatibility evidence and architectural records.
 - [Configuration](CONFIGURATION.md)
 - [Browser cookie import](CHROMIUM_COOKIE_IMPORT.md)
 - [Playlist behavior](PLAYLIST_MODEL.md)
-- [VidStow desktop application](https://github.com/tejasa97/vidstow)
+- [VidStow desktop application](https://github.com/vidstow/vidstow)
 - [Support and issue reporting](../SUPPORT.md)
 - [Security reporting](../SECURITY.md)
 

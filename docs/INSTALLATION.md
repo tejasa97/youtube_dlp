@@ -8,7 +8,7 @@ built binaries as endorsed releases.
 
 | Interface | Intended use | Installation today |
 | --- | --- | --- |
-| [VidStow](https://github.com/tejasa97/vidstow) | Graphical single-video YouTube downloads | See the separate VidStow repository |
+| [VidStow](https://github.com/vidstow/vidstow) | Graphical public YouTube video, Short, and playlist downloads | See the separate VidStow repository |
 | `ytdlp-go` CLI | Terminal and automation workflows | Source build |
 | `pkg/ytdlp` | Embedding in another Go application | Canonical Go module dependency |
 
@@ -69,7 +69,7 @@ selected explicitly:
 ## Desktop application
 
 VidStow is developed and released independently from this engine. Follow the
-[VidStow build instructions](https://github.com/tejasa97/vidstow#quick-start)
+[VidStow build instructions](https://github.com/vidstow/vidstow#run-locally)
 for its Go, Node.js, Wails, FFmpeg, and platform requirements. The historical
 `apps/desktop` snapshot in this repository is not the current desktop source.
 

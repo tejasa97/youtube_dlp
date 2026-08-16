@@ -1,7 +1,7 @@
 # Historical desktop snapshot
 
 The desktop application has moved to the independent
-[VidStow](https://github.com/tejasa97/vidstow) repository.
+[VidStow](https://github.com/vidstow/vidstow) repository.
 
 This directory is the historical source snapshot used for the filtered-history
 extraction. It is retained temporarily for migration traceability and must not
@@ -11,7 +11,7 @@ or supported product boundary.
 Develop and package the desktop application from a VidStow checkout:
 
 ```sh
-git clone https://github.com/tejasa97/vidstow.git
+git clone https://github.com/vidstow/vidstow.git
 cd vidstow
 ```
 
