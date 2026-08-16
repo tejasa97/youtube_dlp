@@ -84,6 +84,24 @@ func IsCategory(err error, category ErrorCategory) bool {
 	return errors.As(err, &target) && target.Category == category
 }
 
+// DownloadHTTPStatusError identifies a non-success HTTP response from the
+// media downloader. It is distinct from HTTPStatusError, which reports
+// extractor and API status codes as "HTTP status N". Desktop callers can use
+// errors.As or DownloadHTTPStatusCode to detect an expired signed media URL
+// without matching error text.
+type DownloadHTTPStatusError = downloader.HTTPStatusError
+
+// DownloadHTTPStatusCode reports the media-downloader HTTP status when err
+// unwraps to DownloadHTTPStatusError. Extractor HTTPStatusError values do
+// not match.
+func DownloadHTTPStatusCode(err error) (int, bool) {
+	var status *DownloadHTTPStatusError
+	if !errors.As(err, &status) || status == nil {
+		return 0, false
+	}
+	return status.Code, true
+}
+
 type Request struct {
 	URL string
 	// ExtractorSelection controls automatic and URL-result extractor routing.

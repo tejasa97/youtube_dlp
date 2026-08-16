@@ -20,12 +20,13 @@ type (
 	Result  = engine.Result
 	Option  = engine.Option
 
-	Error         = engine.Error
-	ErrorCategory = engine.ErrorCategory
-	Event         = engine.Event
-	EventHandler  = engine.EventHandler
-	Artifact      = engine.Artifact
-	Chapter       = engine.Chapter
+	Error                   = engine.Error
+	ErrorCategory           = engine.ErrorCategory
+	DownloadHTTPStatusError = engine.DownloadHTTPStatusError
+	Event                   = engine.Event
+	EventHandler            = engine.EventHandler
+	Artifact                = engine.Artifact
+	Chapter                 = engine.Chapter
 
 	MetadataAction               = engine.MetadataAction
 	MetadataActionKind           = engine.MetadataActionKind
@@ -319,6 +320,7 @@ func WithPluginPermissionApprover(approver PluginPermissionApprover) Option {
 	return engine.WithPluginPermissionApprover(approver)
 }
 func IsCategory(err error, category ErrorCategory) bool { return engine.IsCategory(err, category) }
+func DownloadHTTPStatusCode(err error) (int, bool)      { return engine.DownloadHTTPStatusCode(err) }
 func IsNonOverridableError(err error) bool              { return engine.IsNonOverridableError(err) }
 func ParseMergeOutputFormat(explicit string) ([]string, error) {
 	return engine.ParseMergeOutputFormat(explicit)
