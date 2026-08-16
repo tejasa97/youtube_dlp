@@ -46,7 +46,9 @@ func (err *FileSizeAbortError) Error() string { return err.Message }
 func (err *FileSizeAbortError) Unwrap() error { return ErrFileSizeAbort }
 
 // HTTPStatusError identifies a non-success response rejected by the direct
-// downloader without exposing its potentially sensitive URL.
+// downloader without exposing its potentially sensitive URL. The public
+// engine alias is DownloadHTTPStatusError; it is a different type from the
+// extractor HTTPStatusError ("HTTP status N").
 type HTTPStatusError struct{ Code int }
 
 func (err *HTTPStatusError) Error() string {

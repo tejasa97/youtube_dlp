@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/downloader"
 	"github.com/tejasa97/youtube_dlp/internal/events"
 	"github.com/tejasa97/youtube_dlp/internal/extractor"
 	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
@@ -360,9 +359,8 @@ func TestNTrackSiblingCancellationPreservesRootError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected download failure")
 	}
-	var statusErr *downloader.HTTPStatusError
-	if !errors.As(err, &statusErr) || statusErr.Code != http.StatusInternalServerError {
-		t.Fatalf("error = %v, want HTTP 500 failure", err)
+	if code, ok := DownloadHTTPStatusCode(err); !ok || code != http.StatusInternalServerError {
+		t.Fatalf("error = %v, want HTTP 500 via DownloadHTTPStatusCode", err)
 	}
 	if matches, _ := filepath.Glob(filepath.Join(root, ".ytdlp-formats-*")); len(matches) != 0 {
 		t.Fatalf("workspace remains: %v", matches)

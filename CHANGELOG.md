@@ -15,7 +15,10 @@ interface maturity.
 
 ### Added
 
-- No entries yet.
+- Public `DownloadHTTPStatusError` and `DownloadHTTPStatusCode` so desktop
+  callers can detect a media-downloader HTTP status (including an expired
+  signed URL's 403) with `errors.As` instead of matching error text.
+  Extractor `HTTPStatusError` values remain a separate type.
 
 ### Changed
 
