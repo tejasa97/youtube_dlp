@@ -19,7 +19,9 @@ interface maturity.
 
 ### Changed
 
-- No entries yet.
+- Public VidStow links now point at `github.com/vidstow/vidstow`, and the
+  documented desktop scope includes public YouTube videos, Shorts, and
+  playlists.
 
 ### Fixed
 

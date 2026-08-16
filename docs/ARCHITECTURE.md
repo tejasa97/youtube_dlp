@@ -32,7 +32,7 @@ or download logic independently.
 
 ### Downstream desktop: VidStow
 
-The separate [VidStow](https://github.com/tejasa97/vidstow) project owns
+The separate [VidStow](https://github.com/vidstow/vidstow) project owns
 UI-specific concerns:
 
 - URL validation for the narrower Desktop product scope;
@@ -219,7 +219,7 @@ history, reservations, and cleanup obligations. State v2 does not replace an
 engine session manifest, and the engine does not persist GUI authority.
 
 See [Engine E5 hardening](ENGINE_E5_HARDENING.md) and the downstream
-[VidStow architecture](https://github.com/tejasa97/vidstow/blob/main/docs/ARCHITECTURE.md)
+[VidStow architecture](https://github.com/vidstow/vidstow/blob/main/docs/ARCHITECTURE.md)
 for the two persistence authorities.
 
 ## Evidence and design decisions

@@ -111,7 +111,7 @@ publishing credentials, or an endorsed update channel.
 
 ### Downstream desktop application
 
-[VidStow](https://github.com/tejasa97/vidstow) is a separate project that
+[VidStow](https://github.com/vidstow/vidstow) is a separate project that
 intentionally exposes a small, reviewable product surface over root `engine`
 plus `providers/youtube`. Its repository is authoritative for desktop scope,
 packaging, and releases. VidStow support must not be inferred from engine

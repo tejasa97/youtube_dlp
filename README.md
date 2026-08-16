@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="docs/INSTALLATION.md">Installation</a> ·
-  <a href="https://github.com/tejasa97/vidstow">VidStow</a> ·
+  <a href="https://github.com/vidstow/vidstow">VidStow</a> ·
   <a href="docs/CLI_USAGE.md">CLI</a> ·
   <a href="docs/EMBEDDING.md">Go API</a> ·
   <a href="docs/README.md">Documentation</a> ·
@@ -25,7 +25,7 @@
 `ytdlp-go` is an independent Go implementation informed by the observable
 behavior of [yt-dlp](https://github.com/yt-dlp/yt-dlp). It provides one native
 media engine through a CLI, an embeddable Go API, and explicit provider
-compositions. The separate [VidStow](https://github.com/tejasa97/vidstow)
+compositions. The separate [VidStow](https://github.com/vidstow/vidstow)
 project provides a focused desktop experience powered by this engine.
 
 Python is not used as a runtime, build, test, plugin, fallback, or JavaScript
@@ -47,13 +47,13 @@ identify compatibility targets only.
 
 | Interface | Maturity | Best for | Start here |
 | --- | --- | --- | --- |
-| [VidStow](https://github.com/tejasa97/vidstow) | Early stage | A focused graphical workflow for non-technical users | [VidStow repository](https://github.com/tejasa97/vidstow) |
+| [VidStow](https://github.com/vidstow/vidstow) | Beta | A focused graphical workflow for public YouTube videos, Shorts, and playlists | [VidStow repository](https://github.com/vidstow/vidstow) |
 | `ytdlp-go` CLI | Alpha | Terminal use, scripting, and advanced controls | [CLI guide](docs/CLI_USAGE.md) |
 | `pkg/ytdlp` | `v1alpha1` | Embedding the engine in another Go application | [Go API guide](docs/EMBEDDING.md) |
 
-VidStow currently accepts one public, on-demand YouTube video at a time. It is
-versioned and released independently. The CLI and Go API expose a broader
-evidence-backed feature set.
+VidStow currently accepts public, on-demand YouTube video, Short, and playlist
+URLs. It is versioned and released independently. The CLI and Go API expose a
+broader evidence-backed feature set.
 
 ## Why ytdlp-go?
 
@@ -120,7 +120,7 @@ cookies, SponsorBlock, routing, automation, and transfer controls.
 
 ### Use the focused desktop application
 
-[VidStow](https://github.com/tejasa97/vidstow) is the independently versioned
+[VidStow](https://github.com/vidstow/vidstow) is the independently versioned
 Wails/Svelte desktop application built on root `engine` plus
 `providers/youtube`. Its repository contains the current source-build,
 development, packaging, and product-scope documentation.
@@ -201,7 +201,7 @@ endorsed. Build from a reviewed source revision. See
 | Document | Purpose |
 | --- | --- |
 | [Installation](docs/INSTALLATION.md) | Current source-build requirements and verification boundary |
-| [VidStow](https://github.com/tejasa97/vidstow) | Separate focused desktop application powered by this engine |
+| [VidStow](https://github.com/vidstow/vidstow) | Separate focused desktop application powered by this engine |
 | [CLI usage](docs/CLI_USAGE.md) | Task-oriented command-line workflows |
 | [Go embedding](docs/EMBEDDING.md) | Public library usage and lifecycle |
 | [Supported sites](docs/SUPPORTED_SITES.md) | Public URL families and known boundaries |
