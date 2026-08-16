@@ -15,6 +15,24 @@ interface maturity.
 
 ### Added
 
+- No entries yet.
+
+### Changed
+
+- No entries yet.
+
+### Fixed
+
+- No entries yet.
+
+### Security
+
+- No entries yet.
+
+## [0.2.2] - 2026-08-17
+
+### Added
+
 - Public `DownloadHTTPStatusError` and `DownloadHTTPStatusCode` so desktop
   callers can detect a media-downloader HTTP status (including an expired
   signed URL's 403) with `errors.As` instead of matching error text.
@@ -25,14 +43,6 @@ interface maturity.
 - Public VidStow links now point at `github.com/vidstow/vidstow`, and the
   documented desktop scope includes public YouTube videos, Shorts, and
   playlists.
-
-### Fixed
-
-- No entries yet.
-
-### Security
-
-- No entries yet.
 
 ## [0.2.1] - 2026-08-15
 
@@ -66,5 +76,6 @@ Add an entry when a change affects:
 Pure test refactors, fixture maintenance, and internal evidence changes do not
 need a changelog entry unless they alter an observable claim.
 
-[Unreleased]: https://github.com/tejasa97/youtube_dlp/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/tejasa97/youtube_dlp/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/tejasa97/youtube_dlp/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tejasa97/youtube_dlp/compare/v0.2.0...v0.2.1
