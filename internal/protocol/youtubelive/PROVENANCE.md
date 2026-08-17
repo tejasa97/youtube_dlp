@@ -2,12 +2,13 @@
 
 The finite sequence behavior is derived from yt-dlp's
 `YoutubeIE._live_adaptive_fragments` in
-`yt_dlp/extractor/youtube/_video.py`, pinned at commit
-`aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
+`yt_dlp/extractor/youtube/_video.py`, originally pinned at commit
+`aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` and updated for the HEAD probe
+fix in `93ceb95cdf0eb05d8a2515e3760fd62239683b82`.
 
 For a post-live adaptive format (no live URL feed), the reference:
 
-1. requests the bare adaptive base URL and parses `X-Head-Seqnum`;
+1. sends HEAD to the bare adaptive base URL and parses `X-Head-Seqnum`;
 2. advances the exclusive range end by one and then subtracts two;
 3. yields `sq=N` URLs from sequence zero to that exclusive end; and
 4. stops after the first finite iteration.

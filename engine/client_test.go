@@ -1479,6 +1479,29 @@ func TestJavaScriptHelperConfigurationTakesPrecedence(t *testing.T) {
 	}
 }
 
+func TestLazyChallengeSolverAvailability(t *testing.T) {
+	var nilSolver *lazyChallengeSolver
+	if nilSolver.Available() {
+		t.Fatal("nil solver is available")
+	}
+	if (&lazyChallengeSolver{}).Available() {
+		t.Fatal("unconfigured solver is available")
+	}
+	configured := &lazyChallengeSolver{
+		path: "fixture-helper",
+		factory: func(string) (providerapi.ChallengeSolver, io.Closer, error) {
+			return nil, nil, nil
+		},
+	}
+	if !configured.Available() {
+		t.Fatal("configured solver is unavailable")
+	}
+	configured.Close()
+	if configured.Available() {
+		t.Fatal("closed solver is available")
+	}
+}
+
 func TestBrowserCookieSpec(t *testing.T) {
 	for _, test := range []struct {
 		spec, browser, profile, container string

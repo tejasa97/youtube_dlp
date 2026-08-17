@@ -41,7 +41,13 @@ func TestLiveDownloadRefreshesAndFinalProbesEndedStream(t *testing.T) {
 		requested = append(requested, request.URL.String())
 		requestsMu.Unlock()
 		if request.URL.Query().Get("sq") != "" {
+			if request.Method != http.MethodGet {
+				t.Errorf("fragment method = %s, want GET", request.Method)
+			}
 			return response(http.StatusOK, nil, request.URL.Query().Get("sq")), nil
+		}
+		if request.Method != http.MethodHead {
+			t.Errorf("probe method = %s, want HEAD", request.Method)
 		}
 		if request.URL.Query().Get("token") == "old-secret" {
 			oldProbes.Add(1)

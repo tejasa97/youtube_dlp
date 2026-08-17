@@ -366,13 +366,14 @@ func (session youtubeAuthSession) valid() bool {
 }
 
 // requestAuthenticatedYouTubePlayer issues one authenticated /player request
-// for an exact RequireAuth profile. Cookies stay on www.youtube.com via the
-// no-redirect transport; client identity comes only from the profile.
+// for an exact cookie-capable profile selected by authenticated recovery.
+// Cookies stay on www.youtube.com via the no-redirect transport; client
+// identity comes only from the profile.
 func requestAuthenticatedYouTubePlayer(ctx context.Context, transport Transport, videoID string, profile youtubeClientProfile, session youtubeAuthSession, now func() time.Time) (youtubePlayerResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if !youtubeIDPattern.MatchString(videoID) || !profile.valid() || !profile.RequireAuth || !session.valid() || now == nil {
+	if !youtubeIDPattern.MatchString(videoID) || !profile.valid() || !profile.SupportsCookies || !profile.AllowAuth || !session.valid() || now == nil {
 		return youtubePlayerResponse{}, ErrAuthentication
 	}
 	if profile.ClientName == "WEB_REMIX" || profile.origin() != youtubeAuthOrigin {

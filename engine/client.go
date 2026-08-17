@@ -2578,6 +2578,19 @@ type lazyChallengeSolver struct {
 	closed  bool
 }
 
+// Available reports whether this lazy solver has enough configuration to start
+// a helper. Providers use it only to gate fallbacks that necessarily require a
+// JavaScript runtime; normal challenge solving still returns the authoritative
+// startup error from SolvePlayer.
+func (solver *lazyChallengeSolver) Available() bool {
+	if solver == nil {
+		return false
+	}
+	solver.mu.Lock()
+	defer solver.mu.Unlock()
+	return !solver.closed && solver.factory != nil && solver.path != ""
+}
+
 func (solver *lazyChallengeSolver) SolvePlayer(
 	ctx context.Context,
 	id string,

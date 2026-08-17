@@ -141,6 +141,39 @@ func TestYouTubeWatchMetadataLikesAndCounts(t *testing.T) {
 	}
 }
 
+func TestYouTubeWatchMetadataFirstCollaboratorFollowerCount(t *testing.T) {
+	initial := `{"contents":{"twoColumnWatchNextResults":{"results":{"results":{"contents":[{"videoSecondaryInfoRenderer":{"owner":{"videoOwnerRenderer":{"attributedTitle":{"commandRuns":[{"onTap":{"innertubeCommand":{"showDialogCommand":{"panelLoadingStrategy":{"inlineContent":{"dialogViewModel":{"customContent":{"listViewModel":{"listItems":[{"listItemViewModel":{"rendererContext":{"accessibilityContext":{"label":"First Collaborator, 1.23M subscribers"}}}},{"listItemViewModel":{"rendererContext":{"accessibilityContext":{"label":"Second Collaborator, 456K subscribers"}}}}]}}}}}}}}}]}}}}}]}}}}}`
+	page := []byte(`<!doctype html><html><body><script>var ytInitialData = ` + initial + `;</script></body></html>`)
+	metadata, err := extractYouTubeWatchMetadata(page, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metadata.hasChannelFollowerCount || metadata.channelFollowerCount != 1_230_000 {
+		t.Fatalf("channel_follower_count=%d present=%t", metadata.channelFollowerCount, metadata.hasChannelFollowerCount)
+	}
+}
+
+func TestYouTubeCollaboratorSubscriberLabelRejectsAmbiguity(t *testing.T) {
+	for _, test := range []struct {
+		label string
+		want  int64
+		ok    bool
+	}{
+		{"12.3K subscribers", 12_300, true},
+		{"Channel, 1.2M subscribers", 1_200_000, true},
+		{"Channel, 1.2M subscribers, 2M subscribers", 0, false},
+		{"Channel, 1.2M followers", 0, false},
+		{"Channel 1.2M subscribers", 1_200_000, true},
+		{"Channel2 1.2M subscribers", 0, false},
+		{"Channel,1.2M subscribers", 0, false},
+	} {
+		got, ok := youtubeCollaboratorSubscriberLabel(test.label)
+		if got != test.want || ok != test.ok {
+			t.Fatalf("%q => %d,%t want %d,%t", test.label, got, ok, test.want, test.ok)
+		}
+	}
+}
+
 func TestYouTubeWatchMetadataHeatmapBounds(t *testing.T) {
 	initial := `{"frameworkUpdates":{"entityBatchUpdate":{"mutations":[{"payload":{"macroMarkersListEntity":{"markersList":{"markerType":"MARKER_TYPE_HEATMAP","markers":[{"startMillis":0,"durationMillis":1000,"intensityScoreNormalized":1.5},{"startMillis":-5,"durationMillis":1000,"intensityScoreNormalized":0.5},{"startMillis":1000,"durationMillis":2000,"intensityScoreNormalized":0.5}]}}}}]}}}`
 	page := []byte(`<!doctype html><html><body><script>var ytInitialData = ` + initial + `;</script></body></html>`)

@@ -355,7 +355,7 @@ func (downloader *LiveDownloader) normalizedConfig() (LiveConfig, error) {
 }
 
 func probeLiveHead(ctx context.Context, transport Transport, rawURL string, headers http.Header) (int64, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
 	if err != nil {
 		return 0, ErrInvalidBaseURL
 	}

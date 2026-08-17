@@ -35,6 +35,11 @@ interface maturity.
   Android VR adaptive formats fail closed when their selectively enforced GVS
   PO token is unavailable, instead of leaking intermittently invalid URLs that
   immediately return HTTP 403.
+- YouTube live and post-live adaptive head probes now use `HEAD`; authenticated
+  recovery uses current WEB defaults, and made-for-kids client failures gain the
+  bounded upstream TV fallback when JavaScript support is available.
+- YouTube watch metadata recovers the first collaborator's follower count when
+  the ordinary owner subscriber count is absent.
 
 ### Security
 
