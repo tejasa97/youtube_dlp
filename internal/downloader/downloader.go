@@ -116,9 +116,11 @@ type Job struct {
 	// partial boundary. The refreshed response must still satisfy normal range,
 	// total-size, and validator checks. RefreshAttempts defaults to 2 when a
 	// callback is configured and is capped by the direct-attempt limit.
-	// Mid-file chunk 403s still retry the current URL with backoff before a
-	// refresh; if the new URL also 403s at that offset, the affected partial
-	// is discarded and restarted from byte zero on the refreshed URL.
+	// Chunk 403s, including the first Range, retry the current URL with
+	// backoff before a refresh: googlevideo request-rate 403s look identical
+	// to a dead signature. If a refreshed URL still 403s at a mid-file
+	// offset, the affected partial is discarded and restarted from byte zero
+	// on the refreshed URL.
 	Refresh                   RefreshFunc
 	RefreshAttempts           int
 	refreshes                 *int
@@ -429,13 +431,9 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 		if response.StatusCode != http.StatusForbidden || job.HTTPChunkSize <= 0 || attempt == chunkStatusAttempts {
 			break
 		}
-		// A 403 at offset 0 usually means the signed URL is dead. Jump to
-		// Refresh instead of burning the chunk-retry budget on the same URL.
-		// A 403 after committed bytes is the googlevideo request-rate shape:
-		// retry this URL with backoff first, even when a refresh callback exists.
-		if job.Refresh != nil && offset == 0 {
-			break
-		}
+		// Same-URL backoff applies at offset 0 too. A googlevideo request-rate
+		// 403 on the first Range is indistinguishable from a dead signature,
+		// and jumping to Refresh immediately issues more GVS/Innertube traffic.
 		response.Body.Close()
 		delay := retryDelay(job, attempt)
 		minimum := time.Duration(attempt) * 500 * time.Millisecond

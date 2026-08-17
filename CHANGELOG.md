@@ -29,9 +29,9 @@ interface maturity.
   re-extracting the source, rotating through distinct Innertube client URLs,
   matching the exact representation (including combined IDs such as 18-0),
   and resuming only when the refreshed server validates the saved byte range.
-  Mid-file googlevideo 403s retry the current URL with backoff before refresh;
-  if a refreshed URL still 403s at that offset, only the affected partial is
-  restarted from byte zero.
+  Googlevideo 403s, including the first Range, retry the current URL with
+  backoff before refresh; if a refreshed URL still 403s at a mid-file offset,
+  only the affected partial is restarted from byte zero.
 
 ### Security
 
