@@ -116,10 +116,14 @@ type Job struct {
 	// partial boundary. The refreshed response must still satisfy normal range,
 	// total-size, and validator checks. RefreshAttempts defaults to 2 when a
 	// callback is configured and is capped by the direct-attempt limit.
+	// Mid-file chunk 403s still retry the current URL with backoff before a
+	// refresh; if the new URL also 403s at that offset, the affected partial
+	// is discarded and restarted from byte zero on the refreshed URL.
 	Refresh                   RefreshFunc
 	RefreshAttempts           int
 	refreshes                 *int
 	refreshBoundaryValidation bool
+	refreshRestartedFromZero  bool
 	// MaxBytes bounds a response even where the server omits Content-Length.
 	// Zero means the direct downloader's conservative 8 GiB ceiling.
 	MaxBytes int64
@@ -422,7 +426,14 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 		if err != nil {
 			break
 		}
-		if response.StatusCode != http.StatusForbidden || job.HTTPChunkSize <= 0 || job.Refresh != nil || attempt == chunkStatusAttempts {
+		if response.StatusCode != http.StatusForbidden || job.HTTPChunkSize <= 0 || attempt == chunkStatusAttempts {
+			break
+		}
+		// A 403 at offset 0 usually means the signed URL is dead. Jump to
+		// Refresh instead of burning the chunk-retry budget on the same URL.
+		// A 403 after committed bytes is the googlevideo request-rate shape:
+		// retry this URL with backoff first, even when a refresh callback exists.
+		if job.Refresh != nil && offset == 0 {
 			break
 		}
 		response.Body.Close()
@@ -451,6 +462,20 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
 		err := &HTTPStatusError{Code: response.StatusCode}
+		// A refreshed googlevideo URL often 403s a mid-file Range even when a
+		// request from byte zero would succeed. Discard only this partial and
+		// restart on the URL we already have; do not spend another extract.
+		if response.StatusCode == http.StatusForbidden && offset > 0 && job.Refresh != nil &&
+			job.refreshes != nil && *job.refreshes > 0 && !job.refreshRestartedFromZero {
+			response.Body.Close()
+			if restartErr := downloader.restartPartial(ctx, job, partPath); restartErr != nil {
+				return Result{}, restartErr
+			}
+			job.NoContinue = true
+			job.refreshRestartedFromZero = true
+			job.refreshBoundaryValidation = false
+			return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+		}
 		if response.StatusCode == http.StatusForbidden && job.Refresh != nil {
 			limit := job.RefreshAttempts
 			if limit <= 0 {
@@ -488,6 +513,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 				}
 				(*job.refreshes)++
 				job.refreshBoundaryValidation = offset > 0
+				job.refreshRestartedFromZero = false
 				return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
 			}
 		}
