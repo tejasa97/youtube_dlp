@@ -354,6 +354,12 @@ func (metadata *youtubeWatchMetadata) parseSecondaryInfo(vsir *value.Object) {
 			metadata.hasChannelFollowerCount = true
 		}
 	}
+	if !metadata.hasChannelFollowerCount {
+		if count, ok := youtubeFirstCollaboratorFollowerCount(ownerObject); ok {
+			metadata.channelFollowerCount = count
+			metadata.hasChannelFollowerCount = true
+		}
+	}
 	if badges, ok := ownerObject.Lookup("badges").ListValue(); ok {
 		for _, badge := range badges {
 			badgeObject, ok := badge.Object()
@@ -375,6 +381,67 @@ func (metadata *youtubeWatchMetadata) parseSecondaryInfo(vsir *value.Object) {
 			}
 		}
 	}
+}
+
+// youtubeFirstCollaboratorFollowerCount follows YouTube's bounded collaborator
+// dialog path and reads only the first collaborator, matching current yt-dlp.
+// The ordinary owner subscriberCountText remains authoritative when present.
+func youtubeFirstCollaboratorFollowerCount(owner *value.Object) (int64, bool) {
+	runs, ok := youtubeWatchChild(owner.Lookup("attributedTitle"), "commandRuns").ListValue()
+	if !ok {
+		return 0, false
+	}
+	for _, run := range runs {
+		runObject, ok := run.Object()
+		if !ok {
+			continue
+		}
+		items := runObject.Lookup("onTap")
+		for _, key := range []string{
+			"innertubeCommand", "showDialogCommand", "panelLoadingStrategy", "inlineContent",
+			"dialogViewModel", "customContent", "listViewModel", "listItems",
+		} {
+			items = youtubeWatchChild(items, key)
+		}
+		list, ok := items.ListValue()
+		if !ok {
+			continue
+		}
+		for _, item := range list {
+			itemObject, ok := item.Object()
+			if !ok {
+				continue
+			}
+			viewModel, ok := itemObject.Lookup("listItemViewModel").Object()
+			if !ok {
+				continue
+			}
+			context := youtubeWatchChild(youtubeWatchChild(viewModel.Lookup("rendererContext"), "accessibilityContext"), "label")
+			label, ok := context.StringValue()
+			if !ok {
+				return 0, false
+			}
+			return youtubeCollaboratorSubscriberLabel(label)
+		}
+	}
+	return 0, false
+}
+
+func youtubeCollaboratorSubscriberLabel(label string) (int64, bool) {
+	label = youtubeWatchBoundText(strings.TrimSpace(label))
+	if label == "" {
+		return 0, false
+	}
+	if count, ok := youtubeParseSubscriberCount(label); ok {
+		return count, true
+	}
+	// Accessibility labels may prefix the channel name. Accept only one exact
+	// comma-delimited suffix that itself satisfies the subscriber grammar.
+	if strings.Count(label, ",") != 1 {
+		return 0, false
+	}
+	_, suffix, _ := strings.Cut(label, ",")
+	return youtubeParseSubscriberCount(strings.TrimSpace(suffix))
 }
 
 func (metadata *youtubeWatchMetadata) parseCommentsEntry(entry *value.Object) {
