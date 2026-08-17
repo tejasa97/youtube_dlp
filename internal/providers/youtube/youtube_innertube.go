@@ -83,8 +83,18 @@ func (profile youtubeClientProfile) valid() bool {
 }
 
 // Anonymous format-recovery clients from the pinned yt-dlp INNERTUBE_CLIENTS
-// table (aefce1ee). Order is deterministic and bounded; values are exact.
+// table (aefce1ee), updated for upstream client maintenance 69ea20006.
+// Order is deterministic and bounded; values are exact.
 var youtubeAnonymousFormatRecoveryClients = []youtubeClientProfile{
+	{
+		Name: "visionos", ClientName: "VISIONOS", ClientID: "101",
+		ClientVersion: "1.02",
+		UserAgent:     "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+		Context: map[string]any{
+			"deviceMake": "Apple", "deviceModel": "RealityDevice17,1",
+			"osName": "visionOS", "osVersion": "26.5.23O471",
+		},
+	},
 	{
 		Name: "android", ClientName: "ANDROID", ClientID: "3",
 		ClientVersion: "21.26.364",
@@ -105,6 +115,12 @@ var youtubeAnonymousFormatRecoveryClients = []youtubeClientProfile{
 			"androidSdkVersion": 32, "osName": "Android", "osVersion": "12L",
 			"deviceMake": "Oculus", "deviceModel": "Quest 3",
 		},
+		// YouTube selectively enforces GVS PO tokens for this client. Accepting
+		// unbound adaptive URLs here produces intermittent immediate HTTP 403s.
+		GVSPolicy: youtubePOTPolicy{
+			Required: true, Recommended: true, NotRequiredWithPlayerToken: true,
+		},
+		PlayerPolicy: youtubePOTPolicy{Recommended: true},
 	},
 	{
 		Name: "web_safari", ClientName: "WEB", ClientID: "1",
@@ -347,42 +363,51 @@ func recoverYouTubeFormatsWithProfiles(ctx context.Context, transport Transport,
 			continue
 		}
 		if player.PlayabilityStatus.Status == "OK" && hasYouTubeFormatCandidates(player) {
-			if tokens != nil {
-				required := profile.GVSPolicy.required(player.playerTokenProvided, premium) && youtubePlayerHasGVSRequiredFormats(player)
-				token, ok, tokenErr := tokens.ResolvePolicy(ctx, youtubepot.Request{
-					Context: youtubepot.ContextGVS, Client: profile.ClientName, VisitorData: visitorData,
-					VideoID: videoID, PlayerURL: playerURL,
-				}, required, profile.GVSPolicy.Recommended)
-				if tokenErr != nil {
-					if errors.Is(tokenErr, context.Canceled) || errors.Is(tokenErr, context.DeadlineExceeded) {
-						return nil, tokenErr
-					}
-					if required {
-						dropYouTubeGVSRequiredFormats(&player)
-						if hasYouTubeFormatCandidates(player) {
-							recovered = append(recovered, player)
-							continue
-						}
-					}
-					if firstRequestError == nil {
-						firstRequestError = fmt.Errorf("%w: GVS token", ErrUnavailable)
-					}
-					continue
+			required := profile.GVSPolicy.required(player.playerTokenProvided, premium) && youtubePlayerHasGVSRequiredFormats(player)
+			if tokens == nil {
+				if required {
+					// Required-token formats must fail closed even when no token
+					// director is configured. Itag 18 remains exempt by policy.
+					dropYouTubeGVSRequiredFormats(&player)
 				}
-				if required && !ok {
+				if hasYouTubeFormatCandidates(player) {
+					recovered = append(recovered, player)
+				}
+				continue
+			}
+			token, ok, tokenErr := tokens.ResolvePolicy(ctx, youtubepot.Request{
+				Context: youtubepot.ContextGVS, Client: profile.ClientName, VisitorData: visitorData,
+				VideoID: videoID, PlayerURL: playerURL,
+			}, required, profile.GVSPolicy.Recommended)
+			if tokenErr != nil {
+				if errors.Is(tokenErr, context.Canceled) || errors.Is(tokenErr, context.DeadlineExceeded) {
+					return nil, tokenErr
+				}
+				if required {
 					dropYouTubeGVSRequiredFormats(&player)
 					if hasYouTubeFormatCandidates(player) {
 						recovered = append(recovered, player)
 						continue
 					}
-					if firstRequestError == nil {
-						firstRequestError = fmt.Errorf("%w: GVS token", ErrUnavailable)
-					}
+				}
+				if firstRequestError == nil {
+					firstRequestError = fmt.Errorf("%w: GVS token", ErrUnavailable)
+				}
+				continue
+			}
+			if required && !ok {
+				dropYouTubeGVSRequiredFormats(&player)
+				if hasYouTubeFormatCandidates(player) {
+					recovered = append(recovered, player)
 					continue
 				}
-				if ok {
-					applyYouTubeGVSToken(&player, token)
+				if firstRequestError == nil {
+					firstRequestError = fmt.Errorf("%w: GVS token", ErrUnavailable)
 				}
+				continue
+			}
+			if ok {
+				applyYouTubeGVSToken(&player, token)
 			}
 			recovered = append(recovered, player)
 		}

@@ -451,6 +451,27 @@ func (s stubChallengeSolver) SolvePlayer(context.Context, string, string, []ejs.
 	return ejs.Result{}, s.err
 }
 
+func youtubeTestPOTDirector(t *testing.T) *youtubepot.Director {
+	t.Helper()
+	director, err := youtubepot.New(youtubepot.Config{
+		Policy: youtubepot.FetchAlways,
+		Providers: []youtubepot.Provider{youtubepot.ProviderFunc{ProviderName: "fixture", Function: func(_ context.Context, request youtubepot.Request) (youtubepot.Response, error) {
+			switch request.Context {
+			case youtubepot.ContextPlayer:
+				return youtubepot.Response{Token: "cGxheWVy"}, nil
+			case youtubepot.ContextGVS:
+				return youtubepot.Response{Token: "Z3Zz"}, nil
+			default:
+				return youtubepot.Response{}, youtubepot.ErrRejected
+			}
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return director
+}
+
 func TestYouTubeChallengeDetectionAndFiltering(t *testing.T) {
 	player := youtubePlayerResponse{}
 	player.StreamingData.Formats = []youtubeFormat{
@@ -472,7 +493,7 @@ func TestYouTubeChallengeDetectionAndFiltering(t *testing.T) {
 	}
 }
 
-func TestYouTubePrefersDirectFallbackFormatsBeforeSolver(t *testing.T) {
+func TestYouTubePrefersTokenBoundDirectFallbackFormatsBeforeSolver(t *testing.T) {
 	watch := readYouTubeFixture(t, "watch.html")
 	direct := []byte(`{
 		"playabilityStatus":{"status":"OK"},
@@ -488,7 +509,7 @@ func TestYouTubePrefersDirectFallbackFormatsBeforeSolver(t *testing.T) {
 	}
 	result, err := NewYouTube().Extract(context.Background(), Request{
 		URL: youtubeFixtureURL, Transport: transport,
-		Options: Options{ChallengeSolver: stubChallengeSolver{err: errors.New("solver must not run")}},
+		Options: Options{ChallengeSolver: stubChallengeSolver{err: errors.New("solver must not run")}, POT: youtubeTestPOTDirector(t)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -982,12 +1003,15 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
 		}},
 		responses: map[string][]byte{
-			"3":  readYouTubeFixture(t, "android-player.json"),
-			"28": readYouTubeFixture(t, "android-vr-player.json"),
-			"1":  unavailable, "5": unavailable, "2": unavailable,
+			"101": unavailable,
+			"3":   readYouTubeFixture(t, "android-player.json"),
+			"28":  readYouTubeFixture(t, "android-vr-player.json"),
+			"1":   unavailable, "5": unavailable, "2": unavailable,
 		},
 	}
-	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: youtubeFixtureURL, Transport: transport, Options: Options{POT: youtubeTestPOTDirector(t)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -999,13 +1023,13 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 		t.Fatalf("formats = %#v", formats)
 	}
 	format, _ := formats[0].Object()
-	if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://media.example/android-video.mp4" {
+	if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://media.example/android-video.mp4?pot=Z3Zz" {
 		t.Fatalf("format = %#v", format)
 	}
-	if len(transport.requests) != 5 {
+	if len(transport.requests) != 6 {
 		t.Fatalf("requests = %d", len(transport.requests))
 	}
-	request := transport.requests[0]
+	request := transport.requests[1]
 	if request.Method != http.MethodPost || request.URL.String() != youtubePlayerAPIURL ||
 		request.Header.Get("X-Youtube-Client-Name") != "3" ||
 		request.Header.Get("X-Youtube-Client-Version") != "21.26.364" ||
@@ -1030,7 +1054,7 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 			} `json:"contentPlaybackContext"`
 		} `json:"playbackContext"`
 	}
-	if err := json.Unmarshal(transport.bodies[0], &body); err != nil || body.VideoID != "fixture0001" ||
+	if err := json.Unmarshal(transport.bodies[1], &body); err != nil || body.VideoID != "fixture0001" ||
 		!body.ContentCheck || !body.RacyCheck || body.Context.Client.Name != "ANDROID" ||
 		body.Context.Client.Version != "21.26.364" || body.Context.Client.Visitor != "fixture-visitor" ||
 		body.PlaybackContext.Content.Preference != "HTML5_PREF_WANTS" {
@@ -1060,25 +1084,26 @@ func TestYouTubeAppliesPlayerAndGVSTokensToIsolatedRecovery(t *testing.T) {
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
 		}},
 		responses: map[string][]byte{
-			"3":  readYouTubeFixture(t, "android-player.json"),
-			"28": readYouTubeFixture(t, "android-vr-player.json"),
-			"1":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
-			"5":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
-			"2":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"101": []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"3":   readYouTubeFixture(t, "android-player.json"),
+			"28":  readYouTubeFixture(t, "android-vr-player.json"),
+			"1":   []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"5":   []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"2":   []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
 		},
 	}
 	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport, Options: Options{POT: director}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(transport.bodies) != 5 {
+	if len(transport.bodies) != 6 {
 		t.Fatalf("request bodies = %d", len(transport.bodies))
 	}
-	androidBody := transport.bodies[0]
+	androidBody := transport.bodies[1]
 	if !bytes.Contains(androidBody, []byte(`"serviceIntegrityDimensions":{"poToken":"cGxheWVy"}`)) {
 		t.Fatalf("player token missing from android request: %s", androidBody)
 	}
-	iosBody := transport.bodies[3]
+	iosBody := transport.bodies[4]
 	if !bytes.Contains(iosBody, []byte(`"serviceIntegrityDimensions":{"poToken":"cGxheWVy"}`)) {
 		t.Fatalf("player token missing from ios request: %s", iosBody)
 	}
@@ -1424,19 +1449,22 @@ func TestYouTubeRecoveryContinuesAfterOneClientFails(t *testing.T) {
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
 		}},
 		responses: map[string][]byte{
-			"3":  []byte(`{"playabilityStatus":`),
-			"28": readYouTubeFixture(t, "android-vr-player.json"),
-			"1":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
-			"5":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
-			"2":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"101": []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"3":   []byte(`{"playabilityStatus":`),
+			"28":  readYouTubeFixture(t, "android-vr-player.json"),
+			"1":   []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"5":   []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"2":   []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
 		},
 	}
-	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: youtubeFixtureURL, Transport: transport, Options: Options{POT: youtubeTestPOTDirector(t)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	formats, _ := result.Info.Formats()
-	if len(formats) != 2 || len(transport.requests) != 5 {
+	if len(formats) != 2 || len(transport.requests) != 6 {
 		t.Fatalf("formats=%d requests=%d", len(formats), len(transport.requests))
 	}
 }
@@ -1448,11 +1476,11 @@ func TestYouTubeSABRFallbackFailureIsCategorizedAndCancelable(t *testing.T) {
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
 		}},
 		responses: map[string][]byte{
-			"3": unavailable, "28": unavailable, "1": unavailable, "5": unavailable, "2": unavailable,
+			"101": unavailable, "3": unavailable, "28": unavailable, "1": unavailable, "5": unavailable, "2": unavailable,
 		},
 	}
 	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
-	if !errors.Is(err, ErrInvalidMetadata) || len(transport.requests) != 5 {
+	if !errors.Is(err, ErrInvalidMetadata) || len(transport.requests) != 6 {
 		t.Fatalf("error=%v requests=%d", err, len(transport.requests))
 	}
 
@@ -1968,7 +1996,9 @@ func TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses(t *testing.T) {
 		memoryTransport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
 		responses:       map[string][]byte{"3": recovered, "28": recovered},
 	}
-	result, err := NewYouTube().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: rawURL, Transport: transport, Options: Options{POT: youtubeTestPOTDirector(t)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
