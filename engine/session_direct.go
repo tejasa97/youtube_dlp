@@ -798,6 +798,8 @@ func (run *directSession) download(ctx context.Context, boundary *downloader.Che
 	job.HTTPChunkSize = run.selection.HTTPChunkSize
 	job.HTTPChunkFixed = run.selection.HTTPChunkFixed
 	job.ExpectedBytes = run.selection.Filesize
+	job.Refresh = run.operation.youtubeDirectRefresh(run.selection)
+	job.RefreshAttempts = 2
 	job.OutputRoot = run.workspace.Path()
 	job.Destination = run.payload
 	job.Overwrite = true

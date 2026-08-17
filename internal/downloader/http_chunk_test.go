@@ -3,6 +3,7 @@ package downloader
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -181,5 +182,90 @@ func TestDownloadUsesBoundedHTTPChunksAndRetriesForbiddenChunk(t *testing.T) {
 	wantRanges := []string{"bytes=0-3", "bytes=4-7", "bytes=4-7", "bytes=8-10"}
 	if !reflect.DeepEqual(ranges, wantRanges) {
 		t.Fatalf("ranges = %#v; want %#v", ranges, wantRanges)
+	}
+}
+
+func TestHTTPChunkRefreshesForbiddenURLAndResumes(t *testing.T) {
+	media := []byte("refreshable-media")
+	var oldCalls, refreshCalls int
+	var firstFreshRange string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/old" {
+			oldCalls++
+			if request.Header.Get("Range") != "bytes=0-3" {
+				writer.WriteHeader(http.StatusForbidden)
+				return
+			}
+		}
+		if request.URL.Path == "/fresh" && firstFreshRange == "" {
+			firstFreshRange = request.Header.Get("Range")
+		}
+		var start, end int
+		if _, err := fmt.Sscanf(request.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(media)))
+		writer.Header().Set("Content-Length", fmt.Sprint(end-start+1))
+		writer.WriteHeader(http.StatusPartialContent)
+		_, _ = writer.Write(media[start : end+1])
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	result, err := New(transport).Download(context.Background(), Job{
+		URL: server.URL + "/old", OutputRoot: root, Destination: filepath.Join(root, "media.bin"),
+		HTTPChunkSize: 4, HTTPChunkFixed: true, ExpectedBytes: int64(len(media)),
+		Refresh: func(_ context.Context, request RefreshRequest) (RefreshResult, error) {
+			refreshCalls++
+			if request.StatusCode != http.StatusForbidden || request.Offset != 4 || request.Total != int64(len(media)) {
+				t.Fatalf("refresh request = %#v", request)
+			}
+			return RefreshResult{URL: server.URL + "/fresh", ExpectedBytes: int64(len(media))}, nil
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bytes != int64(len(media)) || oldCalls != 2 || refreshCalls != 1 {
+		t.Fatalf("result=%#v oldCalls=%d refreshCalls=%d", result, oldCalls, refreshCalls)
+	}
+	if firstFreshRange != "bytes=4-7" {
+		t.Fatalf("first fresh range = %q; refreshed URL did not resume at verified total", firstFreshRange)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "media.bin"))
+	if err != nil || !reflect.DeepEqual(got, media) {
+		t.Fatalf("media=%q err=%v", got, err)
+	}
+}
+
+func TestHTTPChunkRefreshBudgetIsOperationScoped(t *testing.T) {
+	var refreshes int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	_, err = New(transport).Download(context.Background(), Job{
+		URL: server.URL + "/old", OutputRoot: root, Destination: filepath.Join(root, "media.bin"),
+		HTTPChunkSize: 4, HTTPChunkFixed: true, Attempts: 3, RefreshAttempts: 2,
+		Refresh: func(context.Context, RefreshRequest) (RefreshResult, error) {
+			refreshes++
+			return RefreshResult{URL: server.URL + fmt.Sprintf("/fresh-%d", refreshes)}, nil
+		},
+	}, nil)
+	var status *HTTPStatusError
+	if !errors.As(err, &status) || status.Code != http.StatusForbidden {
+		t.Fatalf("error = %v", err)
+	}
+	if refreshes != 2 {
+		t.Fatalf("refreshes = %d; want operation-wide budget 2", refreshes)
 	}
 }

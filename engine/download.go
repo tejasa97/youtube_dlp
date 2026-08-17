@@ -571,6 +571,8 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		job.HTTPChunkSize = selected.HTTPChunkSize
 		job.HTTPChunkFixed = selected.HTTPChunkFixed
 		job.ExpectedBytes = selected.Filesize
+		job.Refresh = operation.youtubeDirectRefresh(selected)
+		job.RefreshAttempts = 2
 		job.ResumeIdentity = nTrackResumeIdentity(selected)
 		releaseTransfer, err := operation.acquireGoogleVideoTransfer(ctx, selected.URL)
 		if err != nil {

@@ -790,6 +790,7 @@ type operation struct {
 	thumbnailEmbed            thumbnailEmbedFunc
 	hlsFallback               func(context.Context, string, string, string, http.Header, bool, events.Sink) (fragment.Result, error)
 	youtubeLiveRefresh        func(mediaformat.Selection) youtubelive.LiveRefreshFunc
+	youtubeDirectExtract      func(context.Context, string) (Extraction, error)
 	sabrMerge                 func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 	plannerCapabilities       *mediaformat.PlannerCapabilities
 	formatAvailability        mediaformat.FormatAvailability
@@ -1764,6 +1765,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted Extracti
 		if err != nil {
 			return result, categorized("select format", err)
 		}
+		annotateYouTubeDirectPlans(extractorName, info, outputPlans)
 		if operation.request.HLSSplitDiscontinuity || len(operation.request.HLSDiscontinuitySequences) > 0 {
 			outputPlans, err = operation.selectHLSDiscontinuityPlans(ctx, outputPlans)
 			if err != nil {

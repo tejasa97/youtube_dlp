@@ -87,7 +87,8 @@
         "http_chunk_size": 10485760
       },
       "language": "en",
-      "language_preference": 5
+      "language_preference": 5,
+      "_youtube_audio_track_id": "en"
     },
     {
       "format_id": "140",
@@ -106,7 +107,8 @@
         "http_chunk_size": 10485760
       },
       "language": "en-US",
-      "language_preference": -1
+      "language_preference": -1,
+      "_youtube_audio_track_id": "en-US"
     },
     {
       "format_id": "251",
@@ -125,7 +127,8 @@
         "http_chunk_size": 10485760
       },
       "language": "es",
-      "language_preference": 10
+      "language_preference": 10,
+      "_youtube_audio_track_id": "es"
     },
     {
       "format_id": "401",
