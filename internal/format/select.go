@@ -33,7 +33,10 @@ type Selection struct {
 	Protocol string
 	VCodec   string
 	ACodec   string
+	Width    int64
 	Height   int64
+	FPS      int64
+	Language string
 	TBR      float64
 	Headers  http.Header
 	// HTTPChunkSize requests bounded byte ranges for direct HTTP media. It is
@@ -81,6 +84,8 @@ type Selection struct {
 	YouTubeItag          int64
 	YouTubeClient        string
 	YouTubeSourceURL     string
+	YouTubeDrc           bool
+	YouTubeAudioTrackID  string
 	TargetDuration       float64
 	// YouTubeSABR selects the finite-VOD SABR/UMP downloader.
 	YouTubeSABR                bool
@@ -246,7 +251,10 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.Protocol, _ = object.Lookup("protocol").StringValue()
 		selection.VCodec, _ = object.Lookup("vcodec").StringValue()
 		selection.ACodec, _ = object.Lookup("acodec").StringValue()
+		selection.Width, _ = object.Lookup("width").Int()
 		selection.Height, _ = object.Lookup("height").Int()
+		selection.FPS, _ = object.Lookup("fps").Int()
+		selection.Language, _ = object.Lookup("language").StringValue()
 		selection.TBR, _ = numeric(object.Lookup("tbr"))
 		selection.HTTPChunkSize, selection.HTTPChunkFixed = formatHTTPChunkOptions(object)
 		selection.YouTubePostLive, _ = object.Lookup("_youtube_post_live").Bool()
@@ -254,6 +262,8 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.YouTubeItag, _ = object.Lookup("_youtube_itag").Int()
 		selection.YouTubeClient, _ = object.Lookup("_youtube_client").StringValue()
 		selection.YouTubeSourceURL, _ = object.Lookup("_youtube_source_url").StringValue()
+		selection.YouTubeDrc, _ = object.Lookup("_youtube_drc").Bool()
+		selection.YouTubeAudioTrackID, _ = object.Lookup("_youtube_audio_track_id").StringValue()
 		selection.TargetDuration, _ = numeric(object.Lookup("target_duration"))
 		selection.LiveStartTimestamp, _ = object.Lookup("live_start_timestamp").Int()
 		selection.YouTubeSABR, _ = object.Lookup("_youtube_sabr").Bool()

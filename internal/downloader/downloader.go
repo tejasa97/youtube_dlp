@@ -63,6 +63,28 @@ const (
 	maxDirectRetryDelay  = time.Minute
 )
 
+// RefreshRequest describes the failed media response and the durable boundary
+// a refreshed URL must continue. Callers must not treat metadata matching alone
+// as authority to append bytes; Download still validates the resumed HTTP
+// response against this boundary.
+type RefreshRequest struct {
+	StatusCode   int
+	Offset       int64
+	Total        int64
+	ETag         string
+	LastModified string
+}
+
+// RefreshResult supplies replacement request material for the same logical
+// representation. URL credentials are never included in downloader errors.
+type RefreshResult struct {
+	URL           string
+	Headers       http.Header
+	ExpectedBytes int64
+}
+
+type RefreshFunc func(context.Context, RefreshRequest) (RefreshResult, error)
+
 type Job struct {
 	URL         string
 	Headers     http.Header
@@ -90,6 +112,14 @@ type Job struct {
 	// ExpectedBytes lets a bounded initial range stop at the advertised end of
 	// the representation rather than requesting beyond it.
 	ExpectedBytes int64
+	// Refresh replaces an HTTP 403 media URL while preserving the current
+	// partial boundary. The refreshed response must still satisfy normal range,
+	// total-size, and validator checks. RefreshAttempts defaults to 2 when a
+	// callback is configured and is capped by the direct-attempt limit.
+	Refresh                   RefreshFunc
+	RefreshAttempts           int
+	refreshes                 *int
+	refreshBoundaryValidation bool
 	// MaxBytes bounds a response even where the server omits Content-Length.
 	// Zero means the direct downloader's conservative 8 GiB ceiling.
 	MaxBytes int64
@@ -251,6 +281,9 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	eventURL := network.RedactRawURL(job.URL)
 	_ = sink.Emit(ctx, events.Event{Kind: events.KindStarting, URL: eventURL, Path: job.Destination})
 
+	if job.Refresh != nil && job.refreshes == nil {
+		job.refreshes = new(int)
+	}
 	var result Result
 	var lastErr error
 	throttleRestarts := 0
@@ -389,7 +422,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 		if err != nil {
 			break
 		}
-		if response.StatusCode != http.StatusForbidden || job.HTTPChunkSize <= 0 || attempt == chunkStatusAttempts {
+		if response.StatusCode != http.StatusForbidden || job.HTTPChunkSize <= 0 || job.Refresh != nil || attempt == chunkStatusAttempts {
 			break
 		}
 		response.Body.Close()
@@ -418,6 +451,37 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
 		err := &HTTPStatusError{Code: response.StatusCode}
+		if response.StatusCode == http.StatusForbidden && job.Refresh != nil {
+			limit := job.RefreshAttempts
+			if limit <= 0 {
+				limit = 2
+			}
+			if job.refreshes != nil && *job.refreshes < limit {
+				_ = sink.Emit(ctx, events.Event{
+					Kind: events.KindRetry, URL: network.RedactRawURL(job.URL), Path: job.Destination,
+					Attempt: *job.refreshes + 1, Message: "refreshing media URL after HTTP 403",
+				})
+				refreshed, refreshErr := job.Refresh(ctx, RefreshRequest{
+					StatusCode: response.StatusCode, Offset: offset, Total: state.Total,
+					ETag: state.ETag, LastModified: state.LastModified,
+				})
+				if refreshErr != nil {
+					return Result{}, errors.Join(err, refreshErr)
+				}
+				if refreshed.URL == "" {
+					return Result{}, errors.Join(err, errors.New("download refresh returned an empty URL"))
+				}
+				response.Body.Close()
+				job.URL = refreshed.URL
+				job.Headers = refreshed.Headers.Clone()
+				if refreshed.ExpectedBytes > 0 {
+					job.ExpectedBytes = refreshed.ExpectedBytes
+				}
+				(*job.refreshes)++
+				job.refreshBoundaryValidation = offset > 0
+				return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+			}
+		}
 		if job.HTTPChunkSize > 0 && response.StatusCode == http.StatusForbidden {
 			return Result{}, retryableError{err}
 		}
@@ -436,6 +500,17 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 			return Result{}, err
 		}
 		job.NoContinue = true
+		return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+	}
+	if resuming && job.refreshBoundaryValidation && state.ETag == "" && state.LastModified == "" {
+		if plan.hasCallerAuthority() {
+			return Result{}, &checkpointResetRequiredError{}
+		}
+		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
+			return Result{}, err
+		}
+		job.NoContinue = true
+		job.refreshBoundaryValidation = false
 		return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
 	}
 	if resuming && (!resumeResponseMatches(state, response) || !plan.responseMatchesBoundary(response)) {
@@ -804,7 +879,7 @@ func validateJob(job Job) error {
 	if job.MinFilesize < 0 || job.MaxFilesize < 0 {
 		return fmt.Errorf("%w: negative file size bound", ErrInvalidLimits)
 	}
-	if job.Attempts < 0 || job.RetryBaseDelay < 0 || job.RetryMaxDelay < 0 || job.RetryBaseDelay > maxDirectRetryDelay || job.RetryMaxDelay > maxDirectRetryDelay || (job.RetryBaseDelay > 0 && job.RetryMaxDelay > 0 && job.RetryBaseDelay > job.RetryMaxDelay) || job.RateLimit < 0 || job.MaxBytes < 0 || job.MaxBytes > maxDirectBytes || job.HTTPChunkSize < 0 || job.HTTPChunkSize > maxDirectBytes || job.ExpectedBytes < 0 || job.ExpectedBytes > maxDirectBytes || job.ThrottleRate < 0 || job.ThrottleWindow < 0 || job.ThrottleWindow > maxDirectRetryDelay || job.ThrottleRestarts < 0 || job.ThrottleRestarts > maxDirectRestarts || job.FileAttempts < 0 || job.FileAttempts > maxDirectFileRetries {
+	if job.Attempts < 0 || job.RetryBaseDelay < 0 || job.RetryMaxDelay < 0 || job.RetryBaseDelay > maxDirectRetryDelay || job.RetryMaxDelay > maxDirectRetryDelay || (job.RetryBaseDelay > 0 && job.RetryMaxDelay > 0 && job.RetryBaseDelay > job.RetryMaxDelay) || job.RateLimit < 0 || job.MaxBytes < 0 || job.MaxBytes > maxDirectBytes || job.HTTPChunkSize < 0 || job.HTTPChunkSize > maxDirectBytes || job.ExpectedBytes < 0 || job.ExpectedBytes > maxDirectBytes || job.RefreshAttempts < 0 || job.RefreshAttempts > maxDirectAttempts || job.ThrottleRate < 0 || job.ThrottleWindow < 0 || job.ThrottleWindow > maxDirectRetryDelay || job.ThrottleRestarts < 0 || job.ThrottleRestarts > maxDirectRestarts || job.FileAttempts < 0 || job.FileAttempts > maxDirectFileRetries {
 		return ErrInvalidLimits
 	}
 	if _, err := checkpointPlanForJob(job); err != nil {

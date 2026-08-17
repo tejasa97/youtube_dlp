@@ -627,6 +627,8 @@ func (run *multiTrackSession) downloadTrack(ctx context.Context, track multiTrac
 	job.HTTPChunkSize = track.selection.HTTPChunkSize
 	job.HTTPChunkFixed = track.selection.HTTPChunkFixed
 	job.ExpectedBytes = track.selection.Filesize
+	job.Refresh = run.operation.youtubeDirectRefresh(track.selection)
+	job.RefreshAttempts = 2
 	job.OutputRoot = run.workspace.Path()
 	job.Destination = track.payload
 	job.Overwrite = true
