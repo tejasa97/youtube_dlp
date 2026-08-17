@@ -316,7 +316,7 @@ func (downloader *Downloader) probeHead(ctx context.Context, baseURL string, sin
 }
 
 func (downloader *Downloader) probeOnce(ctx context.Context, baseURL string) (int64, bool, error) {
-	request, err := http.NewRequest(http.MethodGet, baseURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, baseURL, nil)
 	if err != nil {
 		return 0, false, fmt.Errorf("%w: %v", ErrInvalidBaseURL, err)
 	}

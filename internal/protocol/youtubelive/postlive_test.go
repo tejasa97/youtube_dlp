@@ -43,10 +43,16 @@ func TestDownloadFinitePostLiveTailAndPreservesSignedQuery(t *testing.T) {
 		requested = append(requested, request.URL.String())
 		mu.Unlock()
 		if request.URL.Query().Get("sq") == "" {
+			if request.Method != http.MethodHead {
+				t.Errorf("probe method = %s, want HEAD", request.Method)
+			}
 			if request.Header.Get("X-Test") != "fixture" {
 				t.Errorf("probe header = %q", request.Header.Get("X-Test"))
 			}
 			return response(http.StatusOK, http.Header{"X-Head-Seqnum": []string{"4"}}, ""), nil
+		}
+		if request.Method != http.MethodGet {
+			t.Errorf("fragment method = %s, want GET", request.Method)
 		}
 		sequence, _ := strconv.Atoi(request.URL.Query().Get("sq"))
 		return response(http.StatusOK, nil, strconv.Itoa(sequence)), nil
