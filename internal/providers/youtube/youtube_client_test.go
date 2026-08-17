@@ -68,6 +68,12 @@ func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T
 	if youtubeWebCreatorClient.GVSPolicy.Required != true || !youtubeWebCreatorClient.GVSPolicy.NotRequiredForPremium {
 		t.Fatal("web_creator must require GVS with premium exception only")
 	}
+	visionOS := youtubeTestAnonymousProfile(t, "visionos")
+	if visionOS.ClientName != "VISIONOS" || visionOS.ClientID != "101" || visionOS.ClientVersion != "1.02" ||
+		visionOS.Context["userAgent"] != visionOS.UserAgent || visionOS.Context["deviceModel"] != "RealityDevice17,1" ||
+		visionOS.Context["osVersion"] != "26.5.23O471" {
+		t.Fatal("visionos identity must match the upstream Innertube context")
+	}
 	androidVR := youtubeTestAnonymousProfile(t, "android_vr")
 	if androidVR.Name != "android_vr" || !androidVR.GVSPolicy.Required || !androidVR.GVSPolicy.Recommended ||
 		!androidVR.GVSPolicy.NotRequiredWithPlayerToken || !androidVR.PlayerPolicy.Recommended {
