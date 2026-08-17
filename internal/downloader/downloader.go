@@ -477,6 +477,15 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 				if refreshed.ExpectedBytes > 0 {
 					job.ExpectedBytes = refreshed.ExpectedBytes
 				}
+				// Legacy partial state is URL-bound. Migrate it only after the
+				// representation refresh succeeds, so this operation can ask the
+				// new endpoint to prove the same range boundary and total.
+				if offset > 0 && !plan.enabled && state.ResumeIdentity == "" {
+					state.URL = refreshed.URL
+					if saveErr := downloader.savePartialState(ctx, job, statePath, state); saveErr != nil {
+						return Result{}, saveErr
+					}
+				}
 				(*job.refreshes)++
 				job.refreshBoundaryValidation = offset > 0
 				return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
@@ -502,17 +511,6 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 		job.NoContinue = true
 		return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
 	}
-	if resuming && job.refreshBoundaryValidation && state.ETag == "" && state.LastModified == "" {
-		if plan.hasCallerAuthority() {
-			return Result{}, &checkpointResetRequiredError{}
-		}
-		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
-			return Result{}, err
-		}
-		job.NoContinue = true
-		job.refreshBoundaryValidation = false
-		return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
-	}
 	if resuming && (!resumeResponseMatches(state, response) || !plan.responseMatchesBoundary(response)) {
 		if plan.hasCallerAuthority() {
 			return Result{}, &checkpointResetRequiredError{}
@@ -529,6 +527,22 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 		responseOffset = 0
 	}
 	responseTotalBytes := responseTotal(response, responseOffset)
+	if resuming && job.refreshBoundaryValidation {
+		hasSavedValidator := state.ETag != "" || state.LastModified != ""
+		hasExactTotal := state.Total > 0 && responseTotalBytes > 0 && responseTotalBytes == state.Total
+		if !hasSavedValidator && !hasExactTotal {
+			if plan.hasCallerAuthority() {
+				return Result{}, &checkpointResetRequiredError{}
+			}
+			if err := downloader.restartPartial(ctx, job, partPath); err != nil {
+				return Result{}, err
+			}
+			job.NoContinue = true
+			job.refreshBoundaryValidation = false
+			return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+		}
+		job.refreshBoundaryValidation = false
+	}
 	if resuming && responseTotalBytes > 0 && state.Total > 0 && responseTotalBytes != state.Total {
 		if plan.hasCallerAuthority() {
 			return Result{}, &checkpointResetRequiredError{}

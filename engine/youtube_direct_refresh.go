@@ -22,10 +22,10 @@ var errYouTubeDirectRefreshRejected = errors.New("youtube direct media refresh r
 // validates the refreshed response against its durable range boundary.
 func (operation *operation) youtubeDirectRefresh(original mediaformat.Selection) downloader.RefreshFunc {
 	if operation != nil && original.YouTubeSourceURL == "" && isYouTubeWatchSourceURL(operation.request.URL) {
-		annotateYouTubeDirectSelection(&original, operation.request.URL)
+		annotateYouTubeDirectSelection(&original, operation.request.URL, youtubeVideoIDFromSourceURL(operation.request.URL))
 	}
 	if operation == nil || (operation.youtubeDirectExtract == nil && (operation.client == nil || operation.transport == nil)) ||
-		original.YouTubeSourceURL == "" || original.YouTubeItag <= 0 ||
+		original.YouTubeSourceURL == "" || original.YouTubeVideoID == "" || original.YouTubeItag <= 0 ||
 		original.YouTubeSABR || original.YouTubeLiveFromStart || original.YouTubePostLive ||
 		!isTrustedGoogleVideoURL(original.URL) {
 		return nil
@@ -50,7 +50,8 @@ func (operation *operation) youtubeDirectRefresh(original mediaformat.Selection)
 				continue
 			}
 			candidate, candidateErr := mediaformat.SelectionFromObject(object)
-			annotateYouTubeDirectSelection(&candidate, original.YouTubeSourceURL)
+			refreshedVideoID, _ := extracted.Info.Lookup("id").StringValue()
+			annotateYouTubeDirectSelection(&candidate, original.YouTubeSourceURL, refreshedVideoID)
 			if candidateErr != nil || !youtubeDirectRepresentationMatches(original, candidate) || !isTrustedGoogleVideoURL(candidate.URL) {
 				continue
 			}
@@ -82,14 +83,15 @@ func annotateYouTubeDirectPlans(extractorName string, info value.Info, plans []m
 		return
 	}
 	sourceURL, _ := info.Lookup("webpage_url").StringValue()
+	videoID, _ := info.Lookup("id").StringValue()
 	for planIndex := range plans {
 		for trackIndex := range plans[planIndex].Tracks {
-			annotateYouTubeDirectSelection(&plans[planIndex].Tracks[trackIndex], sourceURL)
+			annotateYouTubeDirectSelection(&plans[planIndex].Tracks[trackIndex], sourceURL, videoID)
 		}
 	}
 }
 
-func annotateYouTubeDirectSelection(selection *mediaformat.Selection, sourceURL string) {
+func annotateYouTubeDirectSelection(selection *mediaformat.Selection, sourceURL, videoID string) {
 	if selection == nil || sourceURL == "" || !isTrustedGoogleVideoURL(selection.URL) {
 		return
 	}
@@ -99,12 +101,14 @@ func annotateYouTubeDirectSelection(selection *mediaformat.Selection, sourceURL 
 		return
 	}
 	selection.YouTubeSourceURL = sourceURL
+	selection.YouTubeVideoID = videoID
 	selection.YouTubeItag = itag
 	selection.YouTubeDrc = strings.HasSuffix(selection.ID, "-drc")
 }
 
 func youtubeDirectRepresentationMatches(original, candidate mediaformat.Selection) bool {
 	if original.YouTubeSourceURL == "" || candidate.YouTubeSourceURL != original.YouTubeSourceURL ||
+		original.YouTubeVideoID == "" || candidate.YouTubeVideoID != original.YouTubeVideoID ||
 		candidate.YouTubeItag != original.YouTubeItag || candidate.URL == "" ||
 		candidate.YouTubeSABR || candidate.YouTubeLiveFromStart || candidate.YouTubePostLive ||
 		candidate.VCodec != original.VCodec || candidate.ACodec != original.ACodec ||
@@ -117,6 +121,17 @@ func youtubeDirectRepresentationMatches(original, candidate mediaformat.Selectio
 	// A known extraction size is part of the representation identity. Unknown
 	// sizes remain admissible, but the resumed HTTP response must prove its total.
 	return original.Filesize <= 0 || (candidate.Filesize > 0 && candidate.Filesize == original.Filesize)
+}
+
+func youtubeVideoIDFromSourceURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	if strings.EqualFold(parsed.Hostname(), "youtu.be") {
+		return strings.Trim(strings.TrimSpace(parsed.Path), "/")
+	}
+	return strings.TrimSpace(parsed.Query().Get("v"))
 }
 
 func isYouTubeWatchSourceURL(rawURL string) bool {

@@ -188,6 +188,7 @@ func TestDownloadUsesBoundedHTTPChunksAndRetriesForbiddenChunk(t *testing.T) {
 func TestHTTPChunkRefreshesForbiddenURLAndResumes(t *testing.T) {
 	media := []byte("refreshable-media")
 	var oldCalls, refreshCalls int
+	var firstFreshRange string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/old" {
 			oldCalls++
@@ -196,12 +197,14 @@ func TestHTTPChunkRefreshesForbiddenURLAndResumes(t *testing.T) {
 				return
 			}
 		}
+		if request.URL.Path == "/fresh" && firstFreshRange == "" {
+			firstFreshRange = request.Header.Get("Range")
+		}
 		var start, end int
 		if _, err := fmt.Sscanf(request.Header.Get("Range"), "bytes=%d-%d", &start, &end); err != nil {
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Last-Modified", "Mon, 17 Aug 2026 08:00:00 GMT")
 		writer.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(media)))
 		writer.Header().Set("Content-Length", fmt.Sprint(end-start+1))
 		writer.WriteHeader(http.StatusPartialContent)
@@ -229,6 +232,9 @@ func TestHTTPChunkRefreshesForbiddenURLAndResumes(t *testing.T) {
 	}
 	if result.Bytes != int64(len(media)) || oldCalls != 2 || refreshCalls != 1 {
 		t.Fatalf("result=%#v oldCalls=%d refreshCalls=%d", result, oldCalls, refreshCalls)
+	}
+	if firstFreshRange != "bytes=4-7" {
+		t.Fatalf("first fresh range = %q; refreshed URL did not resume at verified total", firstFreshRange)
 	}
 	got, err := os.ReadFile(filepath.Join(root, "media.bin"))
 	if err != nil || !reflect.DeepEqual(got, media) {

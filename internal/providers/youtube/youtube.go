@@ -319,6 +319,11 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			continue
 		}
 		if normalized, ok := normalizeYouTubeFormat(format, duration, hasDuration); ok {
+			// Language alone cannot distinguish every alternate audio rendition.
+			// Preserve the private player track identity for safe URL refresh matching.
+			if format.AudioTrack != nil && format.AudioTrack.ID != "" {
+				normalized.Set("_youtube_audio_track_id", value.String(format.AudioTrack.ID))
+			}
 			// Match upstream yt-dlp's bounded, randomized 10 MiB GVS ranges. Tiny
 			// fixed ranges can trigger request-rate 403s on larger representations.
 			normalized.Set("downloader_options", value.ObjectValue(value.NewObject(

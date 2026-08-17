@@ -16,7 +16,7 @@ func TestYouTubeDirectRefreshAllowsClientRotationForExactRepresentation(t *testi
 	original := mediaformat.Selection{
 		ID: "299", URL: "https://old.googlevideo.com/videoplayback?sig=old", Ext: "mp4",
 		Filesize: 1000, VCodec: "avc1.64002a", ACodec: "none", Width: 1920, Height: 1080, FPS: 60,
-		YouTubeSourceURL: source, YouTubeItag: 299, YouTubeClient: "ANDROID_VR",
+		YouTubeSourceURL: source, YouTubeVideoID: "fixture0001", YouTubeItag: 299, YouTubeClient: "ANDROID_VR",
 	}
 	operation := &operation{youtubeDirectExtract: func(_ context.Context, gotSource string) (Extraction, error) {
 		if gotSource != source {
@@ -42,7 +42,7 @@ func TestYouTubeDirectRefreshRejectsRepresentationMismatch(t *testing.T) {
 	original := mediaformat.Selection{
 		ID: "299", URL: "https://old.googlevideo.com/videoplayback?sig=old", Ext: "mp4",
 		Filesize: 1000, VCodec: "avc1.64002a", ACodec: "none", Width: 1920, Height: 1080, FPS: 60,
-		YouTubeSourceURL: source, YouTubeItag: 299,
+		YouTubeSourceURL: source, YouTubeVideoID: "fixture0001", YouTubeItag: 299,
 	}
 	operation := &operation{youtubeDirectExtract: func(context.Context, string) (Extraction, error) {
 		return Extraction{Info: youtubeDirectRefreshInfo("https://fresh.googlevideo.com/videoplayback?sig=fresh", 999)}, nil
@@ -65,5 +65,8 @@ func youtubeDirectRefreshInfo(rawURL string, size int64) value.Info {
 		value.Field{Key: "height", Value: value.Int(1080)},
 		value.Field{Key: "fps", Value: value.Int(60)},
 	)
-	return value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(value.ObjectValue(format))}))
+	return value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture0001")},
+		value.Field{Key: "formats", Value: value.List(value.ObjectValue(format))},
+	))
 }

@@ -84,6 +84,7 @@ type Selection struct {
 	YouTubeItag          int64
 	YouTubeClient        string
 	YouTubeSourceURL     string
+	YouTubeVideoID       string
 	YouTubeDrc           bool
 	YouTubeAudioTrackID  string
 	TargetDuration       float64
@@ -262,6 +263,7 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.YouTubeItag, _ = object.Lookup("_youtube_itag").Int()
 		selection.YouTubeClient, _ = object.Lookup("_youtube_client").StringValue()
 		selection.YouTubeSourceURL, _ = object.Lookup("_youtube_source_url").StringValue()
+		selection.YouTubeVideoID, _ = object.Lookup("_youtube_video_id").StringValue()
 		selection.YouTubeDrc, _ = object.Lookup("_youtube_drc").Bool()
 		selection.YouTubeAudioTrackID, _ = object.Lookup("_youtube_audio_track_id").StringValue()
 		selection.TargetDuration, _ = numeric(object.Lookup("target_duration"))
