@@ -26,8 +26,12 @@ interface maturity.
 - YouTube adaptive downloads use upstream-compatible randomized 10 MiB HTTP
   ranges, avoiding request-rate 403 failures caused by fixed 1 MiB ranges.
 - Ordinary YouTube direct-media downloads recover from a bounded HTTP 403 by
-  re-extracting the source, matching the exact representation across clients,
+  re-extracting the source, rotating through distinct Innertube client URLs,
+  matching the exact representation (including combined IDs such as 18-0),
   and resuming only when the refreshed server validates the saved byte range.
+  Googlevideo 403s, including the first Range, retry the current URL with
+  backoff before refresh; if a refreshed URL still 403s at a mid-file offset,
+  only the affected partial is restarted from byte zero.
 
 ### Security
 

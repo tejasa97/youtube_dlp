@@ -62,6 +62,38 @@ func TestPrepareFormatsNormalizesAfterStableOrdering(t *testing.T) {
 	}
 }
 
+func TestPrepareFormatsDuplicateYouTubeIDsPreserveCanonicalItag(t *testing.T) {
+	info := normalizationInfo(
+		normalizationFormat(
+			value.Field{Key: "format_id", Value: value.String("18")},
+			value.Field{Key: "url", Value: value.String("https://a.googlevideo.com/videoplayback")},
+			value.Field{Key: "_youtube_itag", Value: value.Int(18)},
+		),
+		normalizationFormat(
+			value.Field{Key: "format_id", Value: value.String("18")},
+			value.Field{Key: "url", Value: value.String("https://b.googlevideo.com/videoplayback")},
+			value.Field{Key: "_youtube_itag", Value: value.Int(18)},
+		),
+	)
+	prepared, err := prepareFormats(info, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.formats) != 2 {
+		t.Fatalf("prepared formats = %d", len(prepared.formats))
+	}
+	for index, item := range prepared.formats {
+		wantID := "18-" + string(rune('0'+index))
+		selection, selectionErr := objectSelection(item.Object)
+		if selectionErr != nil {
+			t.Fatal(selectionErr)
+		}
+		if item.ID != wantID || selection.ID != wantID || selection.YouTubeItag != 18 {
+			t.Fatalf("format %d = id %q selection %#v", index, item.ID, selection)
+		}
+	}
+}
+
 func TestPrepareFormatsDuplicateAndExtensionOnePass(t *testing.T) {
 	info := normalizationInfo(
 		normalizationFormat(value.Field{Key: "format_id", Value: value.String("x")}, value.Field{Key: "url", Value: value.String("https://example.invalid/x0")}, value.Field{Key: "ext", Value: value.String("webm")}),

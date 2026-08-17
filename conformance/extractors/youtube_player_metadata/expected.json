@@ -25,7 +25,9 @@
       "downloader_options": {
         "http_chunk_size": 10485760
       },
-      "stretched_ratio": 1.3333333333333333
+      "stretched_ratio": 1.3333333333333333,
+      "_youtube_itag": 18,
+      "_youtube_client": "WEB"
     },
     {
       "format_id": "140",
@@ -41,7 +43,9 @@
       "has_drm": false,
       "downloader_options": {
         "http_chunk_size": 10485760
-      }
+      },
+      "_youtube_itag": 140,
+      "_youtube_client": "WEB"
     }
   ],
   "channel_url": "https://www.youtube.com/channel/UCfixture000000000000000",
