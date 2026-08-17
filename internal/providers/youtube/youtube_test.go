@@ -451,6 +451,57 @@ func (s stubChallengeSolver) SolvePlayer(context.Context, string, string, []ejs.
 	return ejs.Result{}, s.err
 }
 
+func TestYouTubeChallengeDetectionAndFiltering(t *testing.T) {
+	player := youtubePlayerResponse{}
+	player.StreamingData.Formats = []youtubeFormat{
+		{Itag: 18, URL: "https://media.example/direct"},
+		{Itag: 22, URL: "https://media.example/throttled?n=challenge"},
+	}
+	player.StreamingData.AdaptiveFormats = []youtubeFormat{
+		{Itag: 401, SignatureCipher: "url=https%3A%2F%2Fmedia.example%2F4k&sp=sig&s=cipher"},
+	}
+	if !youtubePlayerRequiresChallenge(player) {
+		t.Fatal("challenge-bearing player was not detected")
+	}
+	direct := challengeFreeYouTubePlayer(player)
+	if youtubePlayerRequiresChallenge(direct) {
+		t.Fatal("filtered player still requires a challenge")
+	}
+	if len(direct.StreamingData.Formats) != 1 || direct.StreamingData.Formats[0].Itag != 18 || len(direct.StreamingData.AdaptiveFormats) != 0 {
+		t.Fatalf("direct formats = %+v / %+v", direct.StreamingData.Formats, direct.StreamingData.AdaptiveFormats)
+	}
+}
+
+func TestYouTubePrefersDirectFallbackFormatsBeforeSolver(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	direct := []byte(`{
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"fixture0001"},
+		"streamingData":{"adaptiveFormats":[
+			{"itag":401,"url":"https://media.example/4k","mimeType":"video/mp4; codecs=av01.0.12M.08","quality":"hd2160","qualityLabel":"2160p"},
+			{"itag":140,"url":"https://media.example/audio","mimeType":"audio/mp4; codecs=mp4a.40.2","audioQuality":"AUDIO_QUALITY_MEDIUM"}
+		]}
+	}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: watch}},
+		responses:       map[string][]byte{"3": direct},
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: youtubeFixtureURL, Transport: transport,
+		Options: Options{ChallengeSolver: stubChallengeSolver{err: errors.New("solver must not run")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 2 {
+		t.Fatalf("formats = %d, want direct 4K and audio", len(formats))
+	}
+	if !reflect.DeepEqual(transport.reads, []string{youtubeFixtureURL}) {
+		t.Fatalf("player JavaScript was fetched: reads=%v", transport.reads)
+	}
+}
+
 func TestYouTubeSolverCancellationPropagation(t *testing.T) {
 	watch := readYouTubeFixture(t, "watch.html")
 	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")

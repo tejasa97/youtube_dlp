@@ -306,6 +306,18 @@ func recoverYouTubeFormats(ctx context.Context, transport Transport, videoID, vi
 	return recoverYouTubeFormatsWithProfiles(ctx, transport, videoID, visitorData, playerURL, tokens, youtubeAnonymousFormatRecoveryClients, false)
 }
 
+func recoverYouTubeDirectFormats(ctx context.Context, transport Transport, videoID, visitorData, playerURL string, tokens *youtubepot.Director) ([]youtubePlayerResponse, error) {
+	players, err := recoverYouTubeFormats(ctx, transport, videoID, visitorData, playerURL, tokens)
+	if err != nil {
+		return nil, err
+	}
+	players = challengeFreeYouTubePlayers(players)
+	if len(players) == 0 {
+		return nil, fmt.Errorf("%w: YouTube returned no challenge-free formats from fallback clients", ErrUnavailable)
+	}
+	return players, nil
+}
+
 func recoverYouTubeFormatsWithProfiles(ctx context.Context, transport Transport, videoID, visitorData, playerURL string, tokens *youtubepot.Director, profiles []youtubeClientProfile, premium bool) ([]youtubePlayerResponse, error) {
 	var firstRequestError error
 	var recovered []youtubePlayerResponse

@@ -205,6 +205,28 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	// recovery replaces the format sources (recovered responses may be sparse).
 	formatPlayers := []youtubePlayerResponse{player}
 	metadataPlayers := []youtubePlayerResponse{player}
+	initialRequiresChallenge := youtubePlayerRequiresChallenge(player)
+	loggedIn := pageConfig.LoggedIn != nil && *pageConfig.LoggedIn
+	if initialHasFormats && initialRequiresChallenge && !loggedIn {
+		visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
+		recovered, recoveryErr := recoverYouTubeDirectFormats(ctx, request.Transport, videoID, visitorData, playerPath, youtubeOptions.POT)
+		if recoveryErr == nil {
+			// Prefer direct alternate-client URLs over invoking the JavaScript
+			// challenge helper. Keep WEB first for complete watch-page metadata.
+			formatPlayers = recovered
+			metadataPlayers = append(metadataPlayers, recovered...)
+			for i := range formatPlayers {
+				if formatPlayers[i].VideoDetails.Title == "" && player.VideoDetails.Title != "" {
+					formatPlayers[i].VideoDetails.Title = player.VideoDetails.Title
+				}
+				if playerPath == "" {
+					playerPath = formatPlayers[i].Assets.JS
+				}
+			}
+		} else if errors.Is(recoveryErr, context.Canceled) || errors.Is(recoveryErr, context.DeadlineExceeded) {
+			return Extraction{}, recoveryErr
+		}
+	}
 	if !initialHasFormats {
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
 			initialData, _ := extractJSONObject(page, youtubeInitialDataMarker)
@@ -832,6 +854,59 @@ func hasYouTubeFormatCandidates(player youtubePlayerResponse) bool {
 		}
 	}
 	return false
+}
+
+func youtubeFormatRequiresChallenge(format youtubeFormat) bool {
+	rawURL := format.URL
+	if format.SignatureCipher != "" {
+		cipher, err := url.ParseQuery(format.SignatureCipher)
+		if err == nil {
+			if cipher.Get("s") != "" {
+				return true
+			}
+			if rawURL == "" {
+				rawURL = cipher.Get("url")
+			}
+		}
+	}
+	parsed, err := url.Parse(rawURL)
+	return err == nil && parsed.Query().Get("n") != ""
+}
+
+func youtubePlayerRequiresChallenge(player youtubePlayerResponse) bool {
+	formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
+	for _, format := range formats {
+		if youtubeFormatRequiresChallenge(format) {
+			return true
+		}
+	}
+	return false
+}
+
+func challengeFreeYouTubePlayer(player youtubePlayerResponse) youtubePlayerResponse {
+	filter := func(formats []youtubeFormat) []youtubeFormat {
+		direct := make([]youtubeFormat, 0, len(formats))
+		for _, format := range formats {
+			if !youtubeFormatRequiresChallenge(format) {
+				direct = append(direct, format)
+			}
+		}
+		return direct
+	}
+	player.StreamingData.Formats = filter(player.StreamingData.Formats)
+	player.StreamingData.AdaptiveFormats = filter(player.StreamingData.AdaptiveFormats)
+	return player
+}
+
+func challengeFreeYouTubePlayers(players []youtubePlayerResponse) []youtubePlayerResponse {
+	direct := make([]youtubePlayerResponse, 0, len(players))
+	for _, player := range players {
+		player = challengeFreeYouTubePlayer(player)
+		if hasYouTubeFormatCandidates(player) {
+			direct = append(direct, player)
+		}
+	}
+	return direct
 }
 
 func hasYouTubeSABR(players []youtubePlayerResponse) bool {
