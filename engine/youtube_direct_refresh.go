@@ -30,6 +30,11 @@ func (operation *operation) youtubeDirectRefresh(original mediaformat.Selection)
 		!isTrustedGoogleVideoURL(original.URL) {
 		return nil
 	}
+	rejectedCombinations := map[string]struct{}{youtubeDirectCandidateKey(original): {}}
+	attemptedClients := make(map[string]struct{})
+	if original.YouTubeClient != "" {
+		attemptedClients[original.YouTubeClient] = struct{}{}
+	}
 	return func(ctx context.Context, request downloader.RefreshRequest) (downloader.RefreshResult, error) {
 		if request.StatusCode != http.StatusForbidden {
 			return downloader.RefreshResult{}, errYouTubeDirectRefreshRejected
@@ -61,18 +66,28 @@ func (operation *operation) youtubeDirectRefresh(original mediaformat.Selection)
 			}
 			matches = append(matches, candidate)
 		}
-		if len(matches) == 0 {
-			return downloader.RefreshResult{}, fmt.Errorf("%w: no matching representation", errYouTubeDirectRefreshRejected)
-		}
-		// Extraction order is deterministic. Prefer the original client when it
-		// is still available, but allow a different client to supply equivalent
-		// bytes; the HTTP boundary remains the final authority.
-		match := matches[0]
-		for _, candidate := range matches {
-			if candidate.YouTubeClient == original.YouTubeClient {
-				match = candidate
-				break
+		matchIndex := -1
+		for index, candidate := range matches {
+			if _, rejected := rejectedCombinations[youtubeDirectCandidateKey(candidate)]; rejected {
+				continue
 			}
+			if candidate.YouTubeClient != "" {
+				if _, attempted := attemptedClients[candidate.YouTubeClient]; !attempted {
+					matchIndex = index
+					break
+				}
+			}
+			if matchIndex < 0 {
+				matchIndex = index
+			}
+		}
+		if matchIndex < 0 {
+			return downloader.RefreshResult{}, fmt.Errorf("%w: no distinct matching representation", errYouTubeDirectRefreshRejected)
+		}
+		match := matches[matchIndex]
+		rejectedCombinations[youtubeDirectCandidateKey(match)] = struct{}{}
+		if match.YouTubeClient != "" {
+			attemptedClients[match.YouTubeClient] = struct{}{}
 		}
 		return downloader.RefreshResult{URL: match.URL, Headers: match.Headers, ExpectedBytes: match.Filesize}, nil
 	}
@@ -95,15 +110,40 @@ func annotateYouTubeDirectSelection(selection *mediaformat.Selection, sourceURL,
 	if selection == nil || sourceURL == "" || !isTrustedGoogleVideoURL(selection.URL) {
 		return
 	}
-	baseID := strings.TrimSuffix(strings.TrimSuffix(selection.ID, "-drc"), "-sr")
-	itag, err := strconv.ParseInt(baseID, 10, 64)
-	if err != nil || itag <= 0 {
+	itag, ok := youtubeDirectCanonicalItag(*selection)
+	if !ok {
 		return
 	}
 	selection.YouTubeSourceURL = sourceURL
 	selection.YouTubeVideoID = videoID
 	selection.YouTubeItag = itag
-	selection.YouTubeDrc = strings.HasSuffix(selection.ID, "-drc")
+	selection.YouTubeDrc = selection.YouTubeDrc || strings.HasSuffix(selection.ID, "-drc")
+}
+
+func youtubeDirectCanonicalItag(selection mediaformat.Selection) (int64, bool) {
+	if selection.YouTubeItag > 0 {
+		return selection.YouTubeItag, true
+	}
+	baseID := selection.ID
+	if strings.HasSuffix(baseID, "-drc") {
+		baseID = strings.TrimSuffix(baseID, "-drc")
+	} else if strings.HasSuffix(baseID, "-sr") {
+		baseID = strings.TrimSuffix(baseID, "-sr")
+	}
+	if baseID == "" {
+		return 0, false
+	}
+	for _, character := range baseID {
+		if character < '0' || character > '9' {
+			return 0, false
+		}
+	}
+	itag, err := strconv.ParseInt(baseID, 10, 64)
+	return itag, err == nil && itag > 0
+}
+
+func youtubeDirectCandidateKey(selection mediaformat.Selection) string {
+	return selection.YouTubeClient + "\x00" + selection.URL
 }
 
 func youtubeDirectRepresentationMatches(original, candidate mediaformat.Selection) bool {

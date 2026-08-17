@@ -28,6 +28,13 @@ interface maturity.
 - Ordinary YouTube direct-media downloads recover from a bounded HTTP 403 by
   re-extracting the source, matching the exact representation across clients,
   and resuming only when the refreshed server validates the saved byte range.
+- YouTube direct-media refreshes rotate deterministically away from rejected
+  URL/client combinations and retain canonical itags across duplicate format
+  IDs such as `18-0` and `18-1`.
+- YouTube logged-out recovery now prefers the upstream `VISIONOS` direct client;
+  Android VR adaptive formats fail closed when their selectively enforced GVS
+  PO token is unavailable, instead of leaking intermittently invalid URLs that
+  immediately return HTTP 403.
 
 ### Security
 

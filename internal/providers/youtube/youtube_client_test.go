@@ -15,6 +15,17 @@ import (
 	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
 
+func youtubeTestAnonymousProfile(t *testing.T, name string) youtubeClientProfile {
+	t.Helper()
+	for _, profile := range youtubeAnonymousFormatRecoveryClients {
+		if profile.Name == name {
+			return profile
+		}
+	}
+	t.Fatalf("missing anonymous client profile %q", name)
+	return youtubeClientProfile{}
+}
+
 func TestYouTubeAnonymousClientProfilesAreExactAndIsolated(t *testing.T) {
 	seen := make(map[string]struct{})
 	for _, profile := range youtubeAnonymousFormatRecoveryClients {
@@ -57,10 +68,21 @@ func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T
 	if youtubeWebCreatorClient.GVSPolicy.Required != true || !youtubeWebCreatorClient.GVSPolicy.NotRequiredForPremium {
 		t.Fatal("web_creator must require GVS with premium exception only")
 	}
+	visionOS := youtubeTestAnonymousProfile(t, "visionos")
+	if visionOS.ClientName != "VISIONOS" || visionOS.ClientID != "101" || visionOS.ClientVersion != "1.02" ||
+		visionOS.Context["userAgent"] != visionOS.UserAgent || visionOS.Context["deviceModel"] != "RealityDevice17,1" ||
+		visionOS.Context["osVersion"] != "26.5.23O471" {
+		t.Fatal("visionos identity must match the upstream Innertube context")
+	}
+	androidVR := youtubeTestAnonymousProfile(t, "android_vr")
+	if androidVR.Name != "android_vr" || !androidVR.GVSPolicy.Required || !androidVR.GVSPolicy.Recommended ||
+		!androidVR.GVSPolicy.NotRequiredWithPlayerToken || !androidVR.PlayerPolicy.Recommended {
+		t.Fatal("android_vr must fail closed under selective GVS PO-token enforcement")
+	}
 }
 
 func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
-	wantAnon := []string{"android", "android_vr", "web_safari", "ios", "mweb"}
+	wantAnon := []string{"visionos", "android", "android_vr", "web_safari", "ios", "mweb"}
 	if len(youtubeAnonymousFormatRecoveryClients) != len(wantAnon) {
 		t.Fatalf("anon len=%d", len(youtubeAnonymousFormatRecoveryClients))
 	}
@@ -144,6 +166,77 @@ func TestYouTubeAnonymousRecoveryRotatesExactClientIdentities(t *testing.T) {
 		if request.Header.Get("Origin") == "https://music.youtube.com" {
 			t.Fatal("WEB_REMIX origin crossed into video recovery")
 		}
+	}
+}
+
+func TestYouTubeAnonymousRecoveryPrefersVisionOSOverUnboundAndroidVR(t *testing.T) {
+	playerBody := func(name, rawURL string) []byte {
+		return []byte(`{
+			"playabilityStatus":{"status":"OK"},
+			"videoDetails":{"videoId":"fixture0001","title":"` + name + `"},
+			"streamingData":{"adaptiveFormats":[
+				{"itag":136,"url":"` + rawURL + `","mimeType":"video/mp4"}
+			]}
+		}`)
+	}
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{}},
+		responses: map[string][]byte{
+			"101": playerBody("vision", "https://example.test/vision"),
+			"28":  playerBody("vr", "https://example.test/vr"),
+		},
+	}
+	players, err := recoverYouTubeFormatsWithProfiles(context.Background(), transport, "fixture0001", "visitor", "", nil,
+		[]youtubeClientProfile{youtubeTestAnonymousProfile(t, "visionos"), youtubeTestAnonymousProfile(t, "android_vr")}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(players) != 1 || players[0].clientName != "VISIONOS" || len(players[0].StreamingData.AdaptiveFormats) != 1 ||
+		players[0].StreamingData.AdaptiveFormats[0].URL != "https://example.test/vision" {
+		t.Fatalf("players=%#v; want only safe VISIONOS adaptive formats", players)
+	}
+}
+
+func TestYouTubeAnonymousRecoveryWithoutTokenDropsRequiredAdaptiveFormats(t *testing.T) {
+	body := []byte(`{
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"fixture0001","title":"vr"},
+		"streamingData":{
+			"formats":[{"itag":18,"url":"https://example.test/combined","mimeType":"video/mp4"}],
+			"adaptiveFormats":[{"itag":136,"url":"https://example.test/video","mimeType":"video/mp4"}]
+		}
+	}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{}},
+		responses:       map[string][]byte{"28": body},
+	}
+	players, err := recoverYouTubeFormatsWithProfiles(context.Background(), transport, "fixture0001", "visitor", "", nil,
+		[]youtubeClientProfile{youtubeTestAnonymousProfile(t, "android_vr")}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(players) != 1 || len(players[0].StreamingData.Formats) != 1 ||
+		players[0].StreamingData.Formats[0].Itag != 18 || len(players[0].StreamingData.AdaptiveFormats) != 0 {
+		t.Fatalf("unbound formats escaped GVS policy: %#v", players)
+	}
+}
+
+func TestYouTubeAnonymousRecoveryWithoutTokenRejectsRequiredOnlyPlayer(t *testing.T) {
+	body := []byte(`{
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"fixture0001","title":"vr"},
+		"streamingData":{"adaptiveFormats":[
+			{"itag":136,"url":"https://example.test/video","mimeType":"video/mp4"}
+		]}
+	}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{}},
+		responses:       map[string][]byte{"28": body},
+	}
+	_, err := recoverYouTubeFormatsWithProfiles(context.Background(), transport, "fixture0001", "visitor", "", nil,
+		[]youtubeClientProfile{youtubeTestAnonymousProfile(t, "android_vr")}, false)
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err=%v; want ErrUnavailable", err)
 	}
 }
 
@@ -621,7 +714,7 @@ func TestYouTubeClientProfileJSONRoundTripRejectsMalformed(t *testing.T) {
 	_, err := requestYouTubePlayer(context.Background(), &youtubeFallbackTransport{
 		memoryTransport: &memoryTransport{},
 		responses:       map[string][]byte{"3": []byte(`{`)},
-	}, "fixture0001", "visitor", "", youtubeAnonymousFormatRecoveryClients[0], nil)
+	}, "fixture0001", "visitor", "", youtubeTestAnonymousProfile(t, "android"), nil)
 	if err == nil {
 		t.Fatal("expected malformed rejection")
 	}
@@ -634,7 +727,8 @@ func TestYouTubeContradictoryPlayerVideoIDRejected(t *testing.T) {
 	transport := &youtubeFallbackTransport{
 		memoryTransport: &memoryTransport{},
 		responses: map[string][]byte{
-			"3": []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"other000001","title":"x"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/x","mimeType":"video/mp4"}]}}`),
+			"101": []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"3":   []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"other000001","title":"x"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/x","mimeType":"video/mp4"}]}}`),
 		},
 	}
 	_, err := recoverYouTubeFormats(context.Background(), transport, "fixture0001", "visitor", "", nil)

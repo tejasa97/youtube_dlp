@@ -325,7 +325,7 @@ func TestYouTubeTokenProviderCancellationStopsRecovery(t *testing.T) {
 		},
 	}
 	_, err = NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport, Options: Options{POT: director}})
-	if !errors.Is(err, context.Canceled) || len(transport.requests) != 1 {
+	if !errors.Is(err, context.Canceled) || len(transport.requests) != 2 {
 		t.Fatalf("error=%v requests=%d", err, len(transport.requests))
 	}
 }
