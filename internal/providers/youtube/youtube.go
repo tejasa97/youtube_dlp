@@ -24,7 +24,7 @@ import (
 
 const (
 	youtubePlayerMarker  = "ytInitialPlayerResponse"
-	youtubeHTTPChunkSize = 1 << 20
+	youtubeHTTPChunkSize = 10 << 20
 )
 
 var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
@@ -297,11 +297,10 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			continue
 		}
 		if normalized, ok := normalizeYouTubeFormat(format, duration, hasDuration); ok {
-			// GVS is substantially more reliable with one stable, sequential 1 MiB
-			// range stream than with concurrent tracks or larger adaptive chunks.
+			// Match upstream yt-dlp's bounded, randomized 10 MiB GVS ranges. Tiny
+			// fixed ranges can trigger request-rate 403s on larger representations.
 			normalized.Set("downloader_options", value.ObjectValue(value.NewObject(
 				value.Field{Key: "http_chunk_size", Value: value.Int(youtubeHTTPChunkSize)},
-				value.Field{Key: "http_chunk_fixed", Value: value.Bool(true)},
 			)))
 			if activeFromStart {
 				normalized.Set("protocol", value.String("http_dash_segments_generator"))
