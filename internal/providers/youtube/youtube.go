@@ -319,6 +319,13 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			continue
 		}
 		if normalized, ok := normalizeYouTubeFormat(format, duration, hasDuration); ok {
+			// Preserve canonical identity before format normalization adds suffixes
+			// to duplicate display IDs (for example, 18-0 and 18-1).
+			normalized.Set("_youtube_itag", value.Int(int64(format.Itag)))
+			normalized.Set("_youtube_client", value.String(format.clientName))
+			if format.IsDrc != nil && *format.IsDrc {
+				normalized.Set("_youtube_drc", value.Bool(true))
+			}
 			// Language alone cannot distinguish every alternate audio rendition.
 			// Preserve the private player track identity for safe URL refresh matching.
 			if format.AudioTrack != nil && format.AudioTrack.ID != "" {

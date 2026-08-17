@@ -24,7 +24,9 @@
       "has_drm": false,
       "downloader_options": {
         "http_chunk_size": 10485760
-      }
+      },
+      "_youtube_itag": 18,
+      "_youtube_client": "WEB"
     },
     {
       "format_id": "140",
@@ -40,7 +42,9 @@
       "has_drm": false,
       "downloader_options": {
         "http_chunk_size": 10485760
-      }
+      },
+      "_youtube_itag": 140,
+      "_youtube_client": "WEB"
     },
     {
       "format_id": "hls",
