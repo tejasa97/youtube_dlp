@@ -29,6 +29,22 @@ const (
 
 var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
+var youtubeMadeForKidsMarker = []byte("made for kids")
+
+func youtubePageMadeForKids(page []byte) bool {
+	return bytes.Contains(bytes.ToLower(page), youtubeMadeForKidsMarker)
+}
+
+func youtubeChallengeSolverAvailable(solver ChallengeSolver) bool {
+	if solver == nil {
+		return false
+	}
+	if availability, ok := solver.(interface{ Available() bool }); ok {
+		return availability.Available()
+	}
+	return true
+}
+
 const (
 	youtubeMaxPageConfigs       = 8
 	youtubeMaxConfigStartOffset = 64
@@ -261,7 +277,10 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			}
 		} else {
 			visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
-			recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, youtubeOptions.POT)
+			recovered, err := recoverYouTubeFormatsForPage(ctx, request.Transport, videoID, visitorData, playerPath, youtubeOptions.POT, youtubeFormatRecoveryOptions{
+				MadeForKids: youtubePageMadeForKids(page),
+				JSAvailable: youtubeChallengeSolverAvailable(youtubeOptions.ChallengeSolver),
+			})
 			if err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return Extraction{}, err

@@ -15,6 +15,10 @@ import (
 	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
 
+type unavailableYouTubeSolver struct{ stubChallengeSolver }
+
+func (unavailableYouTubeSolver) Available() bool { return false }
+
 func youtubeTestAnonymousProfile(t *testing.T, name string) youtubeClientProfile {
 	t.Helper()
 	for _, profile := range youtubeAnonymousFormatRecoveryClients {
@@ -24,6 +28,21 @@ func youtubeTestAnonymousProfile(t *testing.T, name string) youtubeClientProfile
 	}
 	t.Fatalf("missing anonymous client profile %q", name)
 	return youtubeClientProfile{}
+}
+
+func TestYouTubeMadeForKidsAndJavaScriptAvailabilitySignals(t *testing.T) {
+	if !youtubePageMadeForKids([]byte(`<meta content="MADE FOR KIDS">`)) || youtubePageMadeForKids([]byte(`made for adults`)) {
+		t.Fatal("made-for-kids marker detection")
+	}
+	if youtubeChallengeSolverAvailable(nil) {
+		t.Fatal("nil solver must be unavailable")
+	}
+	if !youtubeChallengeSolverAvailable(stubChallengeSolver{}) {
+		t.Fatal("configured solver without an availability probe must be available")
+	}
+	if youtubeChallengeSolverAvailable(unavailableYouTubeSolver{}) {
+		t.Fatal("explicitly unavailable solver must be unavailable")
+	}
 }
 
 func TestYouTubeAnonymousClientProfilesAreExactAndIsolated(t *testing.T) {
@@ -53,7 +72,7 @@ func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T
 	for _, premium := range []bool{false, true} {
 		for _, ageGated := range []bool{false, true} {
 			for _, profile := range youtubeAuthenticatedFormatRecoveryClients(premium, ageGated) {
-				if !profile.valid() || !profile.RequireAuth || !profile.SupportsCookies {
+				if !profile.valid() || !profile.SupportsCookies {
 					t.Fatalf("authenticated profile %#v", profile)
 				}
 				if profile.ClientName == "WEB_REMIX" || profile.ClientName == "ANDROID" {
@@ -64,6 +83,13 @@ func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T
 				}
 			}
 		}
+	}
+	if youtubeTVDowngradedClient.RequireAuth || !youtubeTVDowngradedClient.SupportsCookies {
+		t.Fatal("tv_downgraded must support both anonymous fallback and SID-bound authenticated recovery")
+	}
+	if youtubeAuthenticatedWebClient.Name != "web" || youtubeAuthenticatedWebClient.RequireAuth ||
+		!youtubeAuthenticatedWebClient.SupportsCookies || len(youtubeAuthenticatedWebClient.Context) != 0 {
+		t.Fatal("authenticated defaults must use generic web rather than web_safari")
 	}
 	if youtubeWebCreatorClient.GVSPolicy.Required != true || !youtubeWebCreatorClient.GVSPolicy.NotRequiredForPremium {
 		t.Fatal("web_creator must require GVS with premium exception only")
@@ -91,7 +117,7 @@ func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
 			t.Fatalf("anon[%d]=%s want %s", i, youtubeAnonymousFormatRecoveryClients[i].Name, name)
 		}
 	}
-	wantAuth := []string{"tv_downgraded", "web_safari"}
+	wantAuth := []string{"tv_downgraded", "web"}
 	gotAuth := youtubeAuthenticatedFormatRecoveryClients(false, false)
 	if len(gotAuth) != len(wantAuth) {
 		t.Fatalf("auth len=%d", len(gotAuth))
@@ -101,7 +127,7 @@ func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
 			t.Fatalf("auth[%d]=%s want %s", i, gotAuth[i].Name, name)
 		}
 	}
-	wantAge := []string{"tv_downgraded", "web_safari", "web_creator"}
+	wantAge := []string{"tv_downgraded", "web", "web_creator"}
 	gotAge := youtubeAuthenticatedFormatRecoveryClients(false, true)
 	if len(gotAge) != len(wantAge) {
 		t.Fatalf("age auth len=%d", len(gotAge))
@@ -111,7 +137,7 @@ func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
 			t.Fatalf("age auth[%d]=%s want %s", i, gotAge[i].Name, name)
 		}
 	}
-	wantPremium := []string{"tv_downgraded", "web_creator"}
+	wantPremium := []string{"tv_downgraded", "web_creator", "web"}
 	gotPremium := youtubeAuthenticatedFormatRecoveryClients(true, false)
 	if len(gotPremium) != len(wantPremium) {
 		t.Fatalf("premium len=%d", len(gotPremium))
@@ -194,6 +220,68 @@ func TestYouTubeAnonymousRecoveryPrefersVisionOSOverUnboundAndroidVR(t *testing.
 	if len(players) != 1 || players[0].clientName != "VISIONOS" || len(players[0].StreamingData.AdaptiveFormats) != 1 ||
 		players[0].StreamingData.AdaptiveFormats[0].URL != "https://example.test/vision" {
 		t.Fatalf("players=%#v; want only safe VISIONOS adaptive formats", players)
+	}
+}
+
+func TestYouTubeMadeForKidsRecoveryAppendsTVDowngradedOnce(t *testing.T) {
+	failed := func(status string) []byte {
+		return []byte(`{"playabilityStatus":{"status":"` + status + `"},"videoDetails":{"videoId":"fixture0001"}}`)
+	}
+	tvOK := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"fixture0001","title":"tv"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/tv","mimeType":"video/mp4"}]}}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{}},
+		responses: map[string][]byte{
+			"101": failed("UNPLAYABLE"),
+			"28":  failed("ERROR"),
+			"7":   tvOK,
+		},
+	}
+	profiles := []youtubeClientProfile{youtubeTestAnonymousProfile(t, "visionos"), youtubeTestAnonymousProfile(t, "android_vr")}
+	players, err := recoverYouTubeFormatsWithOptions(context.Background(), transport, "fixture0001", "visitor", "", nil, profiles, false, youtubeFormatRecoveryOptions{
+		MadeForKids: true,
+		JSAvailable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(players) != 1 || players[0].clientName != "TVHTML5" {
+		t.Fatalf("players=%#v; want tv_downgraded fallback", players)
+	}
+	var clientIDs []string
+	for _, request := range transport.requests {
+		clientIDs = append(clientIDs, request.Header.Get("X-Youtube-Client-Name"))
+	}
+	if strings.Join(clientIDs, ",") != "101,28,7" {
+		t.Fatalf("client order=%v; tv fallback must be appended exactly once", clientIDs)
+	}
+}
+
+func TestYouTubeMadeForKidsRecoveryRequiresAttributableConditions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		status  string
+		options youtubeFormatRecoveryOptions
+	}{
+		{"not made for kids", "UNPLAYABLE", youtubeFormatRecoveryOptions{JSAvailable: true}},
+		{"no JavaScript", "UNPLAYABLE", youtubeFormatRecoveryOptions{MadeForKids: true}},
+		{"ineligible status", "LOGIN_REQUIRED", youtubeFormatRecoveryOptions{MadeForKids: true, JSAvailable: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &youtubeFallbackTransport{
+				memoryTransport: &memoryTransport{pages: map[string][]byte{}},
+				responses: map[string][]byte{
+					"101": []byte(`{"playabilityStatus":{"status":"` + test.status + `"},"videoDetails":{"videoId":"fixture0001"}}`),
+				},
+			}
+			_, err := recoverYouTubeFormatsWithOptions(context.Background(), transport, "fixture0001", "visitor", "", nil,
+				[]youtubeClientProfile{youtubeTestAnonymousProfile(t, "visionos")}, false, test.options)
+			if !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("err=%v; want ErrUnavailable", err)
+			}
+			if len(transport.requests) != 1 {
+				t.Fatalf("requests=%d; ineligible tv fallback ran", len(transport.requests))
+			}
+		})
 	}
 }
 
@@ -334,7 +422,7 @@ func TestYouTubeAuthenticatedNonPremiumOmitsWebCreatorWithoutAgeGate(t *testing.
 		}
 	}
 	if len(seq.clientIDs) != 3 || seq.clientIDs[0] != "1" || seq.clientIDs[1] != "7" || seq.clientIDs[2] != "1" {
-		t.Fatalf("client order=%v want WEB,tv,web_safari", seq.clientIDs)
+		t.Fatalf("client order=%v want WEB,tv,web", seq.clientIDs)
 	}
 }
 
@@ -410,6 +498,36 @@ func TestYouTubeTruthfulJSONMatchesPythonTruthyShapes(t *testing.T) {
 		if got != test.want {
 			t.Fatalf("%q => %t want %t", test.raw, got, test.want)
 		}
+	}
+}
+
+func TestYouTubeAuthenticatedPremiumFallsBackToGenericWeb(t *testing.T) {
+	fail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"fixture0001"}}`)
+	webOK := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"fixture0001","title":"web"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/web","mimeType":"video/mp4"}]}}`)
+	sequence := &youtubeAuthSequenceTransport{
+		cookies: youtubeAuthCookies(),
+		responses: []youtubeAuthSequencedResponse{
+			{clientID: "1", body: fail},
+			{clientID: "7", body: fail},
+			{clientID: "62", body: fail},
+			{clientID: "1", body: webOK},
+		},
+	}
+	recovered, err := recoverAuthenticatedYouTubeFormats(context.Background(), sequence, "fixture0001", discoverYouTubePageConfig(youtubeAuthRecoveryPage()), "auth-visitor", "page-id||user-session", true, false, nil, func() time.Time {
+		return time.Unix(1_700_000_000, 0)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0].clientName != "WEB" || recovered[0].userAgent != youtubeAuthenticatedWebClient.UserAgent {
+		t.Fatalf("recovered=%+v", recovered)
+	}
+	if strings.Join(sequence.clientIDs, ",") != "1,7,62,1" {
+		t.Fatalf("premium order=%v want WEB,tv,web_creator,web", sequence.clientIDs)
+	}
+	lastBody := string(sequence.bodies[len(sequence.bodies)-1])
+	if strings.Contains(lastBody, "Safari") || strings.Contains(lastBody, `"userAgent"`) {
+		t.Fatalf("generic web fallback carried Safari identity: %s", lastBody)
 	}
 }
 
