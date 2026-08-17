@@ -23,7 +23,8 @@ interface maturity.
 
 ### Fixed
 
-- No entries yet.
+- YouTube adaptive downloads use upstream-compatible randomized 10 MiB HTTP
+  ranges, avoiding request-rate 403 failures caused by fixed 1 MiB ranges.
 
 ### Security
 

@@ -26,8 +26,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       }
     },
     {
@@ -46,8 +45,7 @@
       "source_preference": -5,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       }
     },
     {
@@ -67,8 +65,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       }
     },
     {
@@ -87,8 +84,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       },
       "language": "en",
       "language_preference": 5
@@ -107,8 +103,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       },
       "language": "en-US",
       "language_preference": -1
@@ -127,8 +122,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       },
       "language": "es",
       "language_preference": 10
@@ -151,8 +145,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       }
     },
     {
@@ -172,8 +165,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       }
     },
     {
@@ -193,8 +185,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       }
     },
     {
@@ -214,8 +205,7 @@
       "source_preference": 99,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       }
     },
     {
@@ -236,8 +226,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       },
       "preference": -10
     },
@@ -256,8 +245,7 @@
       "source_preference": -1,
       "has_drm": false,
       "downloader_options": {
-        "http_chunk_size": 1048576,
-        "http_chunk_fixed": true
+        "http_chunk_size": 10485760
       },
       "preference": -2
     }
