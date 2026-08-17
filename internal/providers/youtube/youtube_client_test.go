@@ -31,8 +31,9 @@ func youtubeTestAnonymousProfile(t *testing.T, name string) youtubeClientProfile
 }
 
 func TestYouTubeMadeForKidsAndJavaScriptAvailabilitySignals(t *testing.T) {
-	if !youtubePageMadeForKids([]byte(`<meta content="MADE FOR KIDS">`)) || youtubePageMadeForKids([]byte(`made for adults`)) {
-		t.Fatal("made-for-kids marker detection")
+	if !youtubePageMadeForKids([]byte(`<meta content="made for kids">`)) ||
+		youtubePageMadeForKids([]byte(`<meta content="MADE FOR KIDS">`)) || youtubePageMadeForKids([]byte(`made for adults`)) {
+		t.Fatal("made-for-kids marker detection must match the exact upstream signal")
 	}
 	if youtubeChallengeSolverAvailable(nil) {
 		t.Fatal("nil solver must be unavailable")
@@ -72,7 +73,7 @@ func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T
 	for _, premium := range []bool{false, true} {
 		for _, ageGated := range []bool{false, true} {
 			for _, profile := range youtubeAuthenticatedFormatRecoveryClients(premium, ageGated) {
-				if !profile.valid() || !profile.SupportsCookies {
+				if !profile.valid() || !profile.SupportsCookies || !profile.AllowAuth {
 					t.Fatalf("authenticated profile %#v", profile)
 				}
 				if profile.ClientName == "WEB_REMIX" || profile.ClientName == "ANDROID" {
@@ -84,11 +85,11 @@ func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T
 			}
 		}
 	}
-	if youtubeTVDowngradedClient.RequireAuth || !youtubeTVDowngradedClient.SupportsCookies {
+	if youtubeTVDowngradedClient.RequireAuth || !youtubeTVDowngradedClient.SupportsCookies || !youtubeTVDowngradedClient.AllowAuth {
 		t.Fatal("tv_downgraded must support both anonymous fallback and SID-bound authenticated recovery")
 	}
 	if youtubeAuthenticatedWebClient.Name != "web" || youtubeAuthenticatedWebClient.RequireAuth ||
-		!youtubeAuthenticatedWebClient.SupportsCookies || len(youtubeAuthenticatedWebClient.Context) != 0 {
+		!youtubeAuthenticatedWebClient.SupportsCookies || !youtubeAuthenticatedWebClient.AllowAuth || len(youtubeAuthenticatedWebClient.Context) != 0 {
 		t.Fatal("authenticated defaults must use generic web rather than web_safari")
 	}
 	if youtubeWebCreatorClient.GVSPolicy.Required != true || !youtubeWebCreatorClient.GVSPolicy.NotRequiredForPremium {
@@ -256,6 +257,26 @@ func TestYouTubeMadeForKidsRecoveryAppendsTVDowngradedOnce(t *testing.T) {
 	}
 }
 
+func TestYouTubeMadeForKidsRecoveryDoesNotDuplicateExistingTVProfile(t *testing.T) {
+	failed := []byte(`{"playabilityStatus":{"status":"UNPLAYABLE"},"videoDetails":{"videoId":"fixture0001"}}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{}},
+		responses: map[string][]byte{
+			"101": failed,
+			"7":   failed,
+		},
+	}
+	_, err := recoverYouTubeFormatsWithOptions(context.Background(), transport, "fixture0001", "visitor", "", nil,
+		[]youtubeClientProfile{youtubeTestAnonymousProfile(t, "visionos"), youtubeTVDowngradedClient}, false,
+		youtubeFormatRecoveryOptions{MadeForKids: true, JSAvailable: true})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err=%v; want ErrUnavailable", err)
+	}
+	if len(transport.requests) != 2 {
+		t.Fatalf("requests=%d; existing tv_downgraded was duplicated", len(transport.requests))
+	}
+}
+
 func TestYouTubeMadeForKidsRecoveryRequiresAttributableConditions(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -355,6 +376,17 @@ func youtubeAuthRecoveryPage() []byte {
 		"SESSION_INDEX":0,
 		"USER_SESSION_ID":"user-session"
 	});`)
+}
+
+func TestYouTubeAuthenticatedRequestRejectsCookieCapableUnapprovedProfile(t *testing.T) {
+	profile := youtubeTestAnonymousProfile(t, "web_safari")
+	if !profile.SupportsCookies || profile.AllowAuth {
+		t.Fatal("fixture must be cookie-capable but outside the authenticated allowlist")
+	}
+	_, err := requestAuthenticatedYouTubePlayer(context.Background(), nil, "fixture0001", profile, youtubeAuthSession{LoggedIn: true}, time.Now)
+	if !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("err=%v; want ErrAuthentication", err)
+	}
 }
 
 func TestYouTubeAuthenticatedRecoveryFallsBackToTVWithoutAnonymous(t *testing.T) {

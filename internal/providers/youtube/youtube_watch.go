@@ -435,13 +435,18 @@ func youtubeCollaboratorSubscriberLabel(label string) (int64, bool) {
 	if count, ok := youtubeParseSubscriberCount(label); ok {
 		return count, true
 	}
-	// Accessibility labels may prefix the channel name. Accept only one exact
-	// comma-delimited suffix that itself satisfies the subscriber grammar.
-	if strings.Count(label, ",") != 1 {
+	// yt-dlp's parse_count permits a non-numeric collaborator name followed by
+	// whitespace. Strip only that shape; a digit in the name or a missing
+	// separator remains ambiguous and fails the subscriber grammar below.
+	start := strings.IndexAny(label, "0123456789")
+	if start <= 0 {
 		return 0, false
 	}
-	_, suffix, _ := strings.Cut(label, ",")
-	return youtubeParseSubscriberCount(strings.TrimSpace(suffix))
+	prefix := label[:start]
+	if !strings.HasSuffix(prefix, " ") && !strings.HasSuffix(prefix, "\t") && !strings.HasSuffix(prefix, "\u00a0") {
+		return 0, false
+	}
+	return youtubeParseSubscriberCount(label[start:])
 }
 
 func (metadata *youtubeWatchMetadata) parseCommentsEntry(entry *value.Object) {

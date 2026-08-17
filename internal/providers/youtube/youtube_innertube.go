@@ -32,6 +32,7 @@ type youtubeClientProfile struct {
 	Origin          string // empty => https://www.youtube.com
 	RequireAuth     bool
 	SupportsCookies bool
+	AllowAuth       bool
 	Context         map[string]any
 	GVSPolicy       youtubePOTPolicy
 	PlayerPolicy    youtubePOTPolicy
@@ -72,6 +73,9 @@ func (profile youtubeClientProfile) valid() bool {
 	}
 	if profile.ClientName == "WEB_REMIX" {
 		// Music identity must never enter video format recovery.
+		return false
+	}
+	if (profile.AllowAuth && !profile.SupportsCookies) || (profile.RequireAuth && !profile.AllowAuth) {
 		return false
 	}
 	if !youtubeSafeHeaderValue(profile.ClientName) || !youtubeSafeHeaderValue(profile.ClientID) ||
@@ -173,12 +177,14 @@ var (
 		ClientVersion:   "5.20260707",
 		UserAgent:       "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
 		SupportsCookies: true,
+		AllowAuth:       true,
 	}
 	youtubeAuthenticatedWebClient = youtubeClientProfile{
 		Name: "web", ClientName: "WEB", ClientID: "1",
 		ClientVersion:   "2.20260708.00.00",
 		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
 		SupportsCookies: true,
+		AllowAuth:       true,
 		GVSPolicy: youtubePOTPolicy{
 			Required: true, Recommended: true, NotRequiredForPremium: true,
 		},
@@ -189,6 +195,7 @@ var (
 		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
 		RequireAuth:     true,
 		SupportsCookies: true,
+		AllowAuth:       true,
 		GVSPolicy: youtubePOTPolicy{
 			Required: true, Recommended: true, NotRequiredForPremium: true,
 		},
@@ -350,6 +357,13 @@ func recoverYouTubeFormatsWithOptions(ctx context.Context, transport Transport, 
 	attempts := 0
 	fallbackAdded := false
 	profiles = append([]youtubeClientProfile(nil), profiles...)
+	for _, profile := range profiles {
+		if profile.Name == youtubeTVDowngradedClient.Name && profile.ClientName == youtubeTVDowngradedClient.ClientName &&
+			profile.ClientID == youtubeTVDowngradedClient.ClientID && profile.ClientVersion == youtubeTVDowngradedClient.ClientVersion {
+			fallbackAdded = true
+			break
+		}
+	}
 	for index := 0; index < len(profiles); index++ {
 		profile := profiles[index]
 		if attempts >= MaxYouTubeClientAttempts {
@@ -487,7 +501,7 @@ func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport
 		if attempts >= MaxYouTubeClientAttempts {
 			break
 		}
-		if !profile.valid() || !profile.SupportsCookies {
+		if !profile.valid() || !profile.SupportsCookies || !profile.AllowAuth {
 			continue
 		}
 		if err := ctx.Err(); err != nil {

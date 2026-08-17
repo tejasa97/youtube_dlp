@@ -163,7 +163,9 @@ func TestYouTubeCollaboratorSubscriberLabelRejectsAmbiguity(t *testing.T) {
 		{"Channel, 1.2M subscribers", 1_200_000, true},
 		{"Channel, 1.2M subscribers, 2M subscribers", 0, false},
 		{"Channel, 1.2M followers", 0, false},
-		{"Channel 1.2M subscribers", 0, false},
+		{"Channel 1.2M subscribers", 1_200_000, true},
+		{"Channel2 1.2M subscribers", 0, false},
+		{"Channel,1.2M subscribers", 0, false},
 	} {
 		got, ok := youtubeCollaboratorSubscriberLabel(test.label)
 		if got != test.want || ok != test.ok {

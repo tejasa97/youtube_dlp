@@ -29,10 +29,12 @@ const (
 
 var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
-var youtubeMadeForKidsMarker = []byte("made for kids")
+const youtubeMadeForKidsMarker = "made for kids"
 
 func youtubePageMadeForKids(page []byte) bool {
-	return bytes.Contains(bytes.ToLower(page), youtubeMadeForKidsMarker)
+	// Match the exact upstream webpage marker. Case folding would broaden this
+	// into user-authored titles/descriptions that are not the eligibility signal.
+	return bytes.Contains(page, []byte(youtubeMadeForKidsMarker))
 }
 
 func youtubeChallengeSolverAvailable(solver ChallengeSolver) bool {

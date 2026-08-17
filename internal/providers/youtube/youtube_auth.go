@@ -373,7 +373,7 @@ func requestAuthenticatedYouTubePlayer(ctx context.Context, transport Transport,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if !youtubeIDPattern.MatchString(videoID) || !profile.valid() || !profile.SupportsCookies || !session.valid() || now == nil {
+	if !youtubeIDPattern.MatchString(videoID) || !profile.valid() || !profile.SupportsCookies || !profile.AllowAuth || !session.valid() || now == nil {
 		return youtubePlayerResponse{}, ErrAuthentication
 	}
 	if profile.ClientName == "WEB_REMIX" || profile.origin() != youtubeAuthOrigin {
