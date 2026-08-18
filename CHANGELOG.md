@@ -15,6 +15,24 @@ interface maturity.
 
 ### Added
 
+- No entries yet.
+
+### Changed
+
+- No entries yet.
+
+### Fixed
+
+- No entries yet.
+
+### Security
+
+- No entries yet.
+
+## [0.2.3] - 2026-08-18
+
+### Added
+
 - Secret-free `javascript_challenge` events report closed cache status, latency
   buckets, failure phase, and helper error category without player or request
   data.
