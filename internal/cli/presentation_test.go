@@ -102,6 +102,61 @@ func TestTerminalPresentationWarningSuppressionAndVerboseQuiet(t *testing.T) {
 	}
 }
 
+func TestTerminalPresentationJavaScriptChallengeIsSecretFree(t *testing.T) {
+	hostile := ytdlp.Event{
+		Kind:      ytdlp.EventJavaScriptChallenge,
+		URL:       "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		Path:      "/secret/player.js",
+		Extractor: "youtube",
+		Message:   "stage=ejs cache=miss preprocess=100ms_1s solve=lt_10ms error=timeout phase=preprocess",
+	}
+
+	var quiet bytes.Buffer
+	quietPresentation := newTerminalPresentation(&quiet, terminalPresentationConfig{
+		quiet: true, colors: newColorConfig(),
+	})
+	if err := quietPresentation.handle(context.Background(), hostile); err != nil {
+		t.Fatal(err)
+	}
+	if quiet.Len() != 0 {
+		t.Fatalf("quiet output=%q", quiet.String())
+	}
+
+	var verbose bytes.Buffer
+	verbosePresentation := newTerminalPresentation(&verbose, terminalPresentationConfig{
+		verbose: true, colors: newColorConfig(),
+	})
+	if err := verbosePresentation.handle(context.Background(), hostile); err != nil {
+		t.Fatal(err)
+	}
+	got := verbose.String()
+	if !strings.Contains(got, "[debug] javascript_challenge stage=ejs cache=miss preprocess=100ms_1s solve=lt_10ms error=timeout phase=preprocess") {
+		t.Fatalf("verbose output=%q", got)
+	}
+	for _, secret := range []string{"youtube.com", "dQw4w9WgXcQ", "/secret/player.js", "extractor=youtube", "url="} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("verbose leaked %q: %q", secret, got)
+		}
+	}
+
+	var encoded bytes.Buffer
+	jsonPresentation := newTerminalPresentation(&encoded, terminalPresentationConfig{
+		progressJSON: true, colors: newColorConfig(),
+	})
+	if err := jsonPresentation.handle(context.Background(), hostile); err != nil {
+		t.Fatal(err)
+	}
+	payload := encoded.String()
+	if !strings.Contains(payload, `"kind":"javascript_challenge"`) || !strings.Contains(payload, `"message":"stage=ejs cache=miss preprocess=100ms_1s solve=lt_10ms error=timeout phase=preprocess"`) {
+		t.Fatalf("json=%q", payload)
+	}
+	for _, secret := range []string{"youtube.com", "dQw4w9WgXcQ", "/secret/player.js", `"url"`, `"path"`, `"extractor"`} {
+		if strings.Contains(payload, secret) {
+			t.Fatalf("json leaked %q: %q", secret, payload)
+		}
+	}
+}
+
 func TestTerminalPresentationProgressJSONStaysStructuredOnStderr(t *testing.T) {
 	var output bytes.Buffer
 	presentation := newTerminalPresentation(&output, terminalPresentationConfig{

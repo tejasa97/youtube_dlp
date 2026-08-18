@@ -129,6 +129,9 @@ func (presentation *terminalPresentation) handle(ctx context.Context, event ytdl
 		if presentation.config.noWarnings && event.Kind == ytdlp.EventMetadataWarning {
 			return nil
 		}
+		if event.Kind == ytdlp.EventJavaScriptChallenge {
+			return presentation.encoder.Encode(sanitizedJavaScriptChallengeEvent(event))
+		}
 		return presentation.encoder.Encode(event)
 	}
 	if event.Kind == ytdlp.EventMetadataWarning {
@@ -168,6 +171,11 @@ func (presentation *terminalPresentation) handle(ctx context.Context, event ytdl
 			return nil
 		}
 		return presentation.writeLine("[download] "+event.Message, ansiYellow)
+	case ytdlp.EventJavaScriptChallenge:
+		if !presentation.config.verbose {
+			return nil
+		}
+		return presentation.writeLine("[debug] "+formatJavaScriptChallengeEvent(event), ansiCyan)
 	case ytdlp.EventBrowserCookies, ytdlp.EventExtracted, ytdlp.EventExtractorRetry,
 		ytdlp.EventFragmentStarting, ytdlp.EventFragmentCompleted,
 		ytdlp.EventPostprocessStarting, ytdlp.EventPostprocessProgress, ytdlp.EventPostprocessCompleted,
@@ -281,6 +289,18 @@ func shouldColorize(policy colorPolicy, tty bool) bool {
 	default:
 		return false
 	}
+}
+
+func sanitizedJavaScriptChallengeEvent(event ytdlp.Event) ytdlp.Event {
+	return ytdlp.Event{Kind: ytdlp.EventJavaScriptChallenge, Message: event.Message}
+}
+
+func formatJavaScriptChallengeEvent(event ytdlp.Event) string {
+	sanitized := sanitizedJavaScriptChallengeEvent(event)
+	if sanitized.Message == "" {
+		return sanitized.Kind
+	}
+	return sanitized.Kind + " " + sanitized.Message
 }
 
 func formatDebugEvent(event ytdlp.Event) string {

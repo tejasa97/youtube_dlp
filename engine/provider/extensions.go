@@ -29,6 +29,7 @@ type ChallengeResponse struct {
 type ChallengeResult struct {
 	Responses          []ChallengeResponse
 	PreprocessedPlayer string
+	Diagnostics        ChallengeDiagnostics
 }
 
 // ChallengeSolver is the typed extension seam for providers that require

@@ -162,6 +162,7 @@ const (
 	EventArchiveMatch         = engine.EventArchiveMatch
 	EventMetadataWarning      = engine.EventMetadataWarning
 	EventMatchFilterSkipped   = engine.EventMatchFilterSkipped
+	EventJavaScriptChallenge  = engine.EventJavaScriptChallenge
 
 	MetadataActionParse   = engine.MetadataActionParse
 	MetadataActionReplace = engine.MetadataActionReplace

@@ -870,7 +870,7 @@ func (operation *operation) providerRequest(rawURL, referer, searchQueryOverride
 			Transport: operation.transport, Credentials: operation.credentials,
 			VideoPassword: operation.request.VideoPassword, NoPlaylist: operation.request.Playlist.Disabled,
 		},
-		ChallengeSolver: operation.solver,
+		ChallengeSolver: newObservingChallengeSolver(operation.solver, operation.client),
 		POTResolver:     operation.client.potResolver,
 	}
 }
@@ -2601,17 +2601,19 @@ func (solver *lazyChallengeSolver) SolvePlayer(
 	solver.mu.Lock()
 	if solver.closed {
 		solver.mu.Unlock()
-		return providerapi.ChallengeResult{}, errors.New("solver is closed")
+		return providerapi.ChallengeResult{}, unavailableChallengeFailure(errors.New("solver is closed"))
 	}
 	if solver.solver == nil {
 		if solver.factory == nil {
 			solver.mu.Unlock()
-			return providerapi.ChallengeResult{}, providerapi.ErrChallengeSolver
+			return providerapi.ChallengeResult{}, unavailableChallengeFailure(providerapi.ErrChallengeSolver)
 		}
 		challengeSolver, closer, err := solver.factory(solver.path)
 		if err != nil {
 			solver.mu.Unlock()
-			return providerapi.ChallengeResult{}, err
+			// The event exposes only the closed unavailable category, while the
+			// returned chain preserves the authoritative startup/security cause.
+			return providerapi.ChallengeResult{}, unavailableChallengeFailure(err)
 		}
 		solver.solver, solver.closer = challengeSolver, closer
 	}

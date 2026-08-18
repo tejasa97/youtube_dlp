@@ -33,19 +33,25 @@ func ProviderNames() []string {
 
 // NewComposition returns the explicit complete first-party YouTube composition.
 // It contains no broad compatibility catalog, plugins, or non-YouTube
-// providers. Engine request fields remain the product request surface; use
-// WithPOTProviders only when an application needs explicit PO-token sources.
+// providers. Reusing the returned composition across short-lived Clients also
+// reuses its bounded in-memory completed-player preprocessing cache; helpers and
+// in-flight calls remain client-local. Engine request fields remain the product
+// request surface; use WithPOTProviders only when an application needs explicit
+// PO-token sources.
 func NewComposition() engine.Composition {
+	preprocessedPlayers := ejs.NewPreprocessedPlayerCache()
 	return engine.NewComposition[internalyoutube.Request](
 		func(engine.ClientProviderConfig) []providerapi.Provider[internalyoutube.Request] {
 			return completeProviders()
 		},
 		adaptRequest,
 		engine.ProviderHooks{
-			ChallengeSolverFactory: newChallengeSolver,
-			ClassifyError:          classifyError,
-			ServiceIdentity:        serviceIdentity,
-			Reload:                 reload,
+			ChallengeSolverFactory: func(path string) (providerapi.ChallengeSolver, io.Closer, error) {
+				return newChallengeSolver(path, preprocessedPlayers)
+			},
+			ClassifyError:   classifyError,
+			ServiceIdentity: serviceIdentity,
+			Reload:          reload,
 		},
 	)
 }
@@ -79,7 +85,7 @@ func adaptRequest(operation providerapi.Operation, request engine.Request) inter
 	})
 }
 
-func newChallengeSolver(path string) (providerapi.ChallengeSolver, io.Closer, error) {
+func newChallengeSolver(path string, preprocessedPlayers *ejs.PreprocessedPlayerCache) (providerapi.ChallengeSolver, io.Closer, error) {
 	hash, err := ejs.BundledScriptHash()
 	if err != nil {
 		return nil, nil, err
@@ -88,7 +94,7 @@ func newChallengeSolver(path string) (providerapi.ChallengeSolver, io.Closer, er
 	if err != nil {
 		return nil, nil, err
 	}
-	solver, err := ejs.New(client)
+	solver, err := ejs.NewWithPreprocessedPlayerCache(client, preprocessedPlayers)
 	if err != nil {
 		_ = client.Close()
 		return nil, nil, err

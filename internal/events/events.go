@@ -24,6 +24,7 @@ const (
 	KindPostprocessCompleted Kind = "postprocess_completed"
 	KindMetadataWarning      Kind = "metadata_warning"
 	KindMatchFilterSkipped   Kind = "match_filter_skipped"
+	KindJavaScriptChallenge  Kind = "javascript_challenge"
 )
 
 // Event contains stable operation data. It intentionally excludes wall-clock

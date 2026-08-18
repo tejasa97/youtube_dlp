@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tejasa97/youtube_dlp/engine/provider"
 	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
@@ -64,14 +65,31 @@ type Result = provider.ChallengeResult
 // player preprocessing is serialized process-wide rather than per Solver.
 var playerPreprocessSlot = make(chan struct{}, 1)
 
-type Solver struct {
-	executor Executor
-	script   string
+// PreprocessedPlayerCache owns the bounded completed-transform LRU. A cache
+// may be shared by multiple Solver instances that use the same authenticated
+// EJS bundle, allowing short-lived helper clients to reuse derived transforms
+// without writing them to disk.
+type PreprocessedPlayerCache struct {
+	mu      sync.Mutex
+	entries map[string]string // player SHA-256 → preprocessed player
+	order   []string          // LRU eviction order (oldest first)
+}
 
+// NewPreprocessedPlayerCache creates an empty, bounded in-memory cache.
+func NewPreprocessedPlayerCache() *PreprocessedPlayerCache {
+	return &PreprocessedPlayerCache{entries: make(map[string]string, MaxCachedPlayers)}
+}
+
+type Solver struct {
+	executor     Executor
+	script       string
+	preprocessed *PreprocessedPlayerCache
+
+	// Flights stay solver-local because their goroutines execute through this
+	// solver's helper. Sharing an in-flight call across short-lived helpers
+	// could let the owner close while another client's waiter remains.
 	mu     sync.Mutex
-	cache  map[string]string // player SHA-256 → preprocessed player
-	order  []string          // LRU eviction order (oldest first)
-	flight map[string]*call  // in-flight preprocessing coordination
+	flight map[string]*call
 }
 
 // call represents an in-flight preprocessing operation owned by the flight,
@@ -80,7 +98,7 @@ type Solver struct {
 // shared preprocessing is canceled to avoid orphaned work.
 //
 // All waiter admission, departure, and abandonment decisions are coordinated
-// under solver.mu to prevent races between joining and cancellation.
+// under the owning solver lock to prevent races between joining and cancellation.
 type call struct {
 	done      chan struct{}      // closed when preprocessing completes
 	cancel    context.CancelFunc // cancels the shared preprocessing goroutine
@@ -88,21 +106,32 @@ type call struct {
 	abandoned bool               // true when all waiters left (set under solver.mu)
 	val       string
 	err       error
+	cache     string
+	elapsed   time.Duration
 }
 
 func New(executor Executor) (*Solver, error) {
+	return NewWithPreprocessedPlayerCache(executor, NewPreprocessedPlayerCache())
+}
+
+// NewWithPreprocessedPlayerCache creates a solver backed by cache. Callers may
+// share one cache across short-lived clients only when they use this package's
+// identical authenticated EJS bundle. A nil cache is rejected rather than
+// silently changing the requested lifetime.
+func NewWithPreprocessedPlayerCache(executor Executor, cache *PreprocessedPlayerCache) (*Solver, error) {
 	if executor == nil {
 		return nil, errors.New("EJS executor is required")
+	}
+	if cache == nil {
+		return nil, errors.New("EJS preprocessed-player cache is required")
 	}
 	script, err := bundledScript()
 	if err != nil {
 		return nil, err
 	}
 	return &Solver{
-		executor: executor,
-		script:   script,
-		cache:    make(map[string]string, MaxCachedPlayers),
-		flight:   make(map[string]*call),
+		executor: executor, script: script, preprocessed: cache,
+		flight: make(map[string]*call),
 	}, nil
 }
 
@@ -116,75 +145,75 @@ func New(executor Executor) (*Solver, error) {
 // unique player script, and the solve phase completes within a tight timeout.
 func (solver *Solver) SolvePlayer(ctx context.Context, id, player string, requests []ChallengeRequest, outputPreprocessed bool) (Result, error) {
 	if len(player) == 0 || len(player) > MaxPlayerBytes {
-		return Result{}, fmt.Errorf("player source must contain 1-%d bytes", MaxPlayerBytes)
+		return Result{}, challengeFailure(provider.ChallengeHelperInvalidInput, provider.ChallengePhasePreprocess, fmt.Errorf("player source must contain 1-%d bytes", MaxPlayerBytes))
 	}
 	if err := validateChallenges(requests); err != nil {
-		return Result{}, err
+		return Result{}, challengeFailure(provider.ChallengeHelperInvalidInput, provider.ChallengePhasePreprocess, err)
 	}
 
 	playerHash := protocol.HashScript(player)
-	preprocessed, err := solver.getPreprocessed(ctx, id, playerHash, player)
+	preprocessed, cache, preprocessDuration, err := solver.getPreprocessed(ctx, id, playerHash, player)
+	diagnostics := provider.ChallengeDiagnostics{
+		Cache:            cache,
+		PreprocessBucket: provider.PreprocessBucket(cache, preprocessDuration),
+		SolveBucket:      provider.ChallengeBucketNone,
+		Phase:            provider.ChallengePhasePreprocess,
+	}
 	if err != nil {
-		return Result{}, err
+		return Result{}, annotateChallengeFailure(err, diagnostics)
 	}
 
-	return solver.solve(ctx, id, preprocessed, requests, outputPreprocessed, player)
+	started := time.Now()
+	result, err := solver.solve(ctx, id, preprocessed, requests, outputPreprocessed, player)
+	diagnostics.SolveBucket = provider.ChallengeDurationBucket(time.Since(started))
+	if err != nil {
+		diagnostics.Phase = provider.ChallengePhaseSolve
+		return Result{}, annotateChallengeFailure(err, diagnostics)
+	}
+	diagnostics.Phase = provider.ChallengePhaseNone
+	diagnostics.HelperCategory = provider.ChallengeHelperNone
+	result.Diagnostics = diagnostics.Sanitize()
+	return result, nil
 }
 
-// getPreprocessed returns the cached preprocessed player or coalesces
-// concurrent preprocessing via a flight-owned lifecycle. Preprocessing runs
-// in a dedicated goroutine independent of any individual caller's context.
-// Every caller (including the first) selects between flight completion and
-// its own context. When all waiters cancel, the shared preprocessing is
-// canceled to avoid orphaned work. The result is cached atomically before
-// the flight entry is removed to prevent duplicate preprocessing.
-//
-// Waiter admission, departure, and abandonment are all coordinated under
-// solver.mu to prevent races between joining and cancellation.
-func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, player string) (string, error) {
-	// Fast path: cache hit.
+// getPreprocessed returns a completed shared-cache entry or coalesces misses
+// through a solver-local flight. Keeping flights local ensures their owning
+// helper remains protected by that client's active-call drain. A second solver
+// waiting on the process-wide slot rechecks the completed cache before running.
+func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, player string) (string, string, time.Duration, error) {
 	if preprocessed, ok := solver.lookupPreprocessed(playerHash); ok {
-		return preprocessed, nil
+		return preprocessed, provider.ChallengeCacheHit, 0, nil
 	}
 
-	// Singleflight: coalesce concurrent misses for the same player.
 	solver.mu.Lock()
-	if preprocessed, ok := solver.cache[playerHash]; ok {
+	if preprocessed, ok := solver.lookupPreprocessed(playerHash); ok {
 		solver.mu.Unlock()
-		return preprocessed, nil
+		return preprocessed, provider.ChallengeCacheHit, 0, nil
 	}
 	if inflight, ok := solver.flight[playerHash]; ok {
 		if inflight.abandoned {
-			// Flight is being canceled; do not join. Fall through to
-			// start a new flight below.
 			delete(solver.flight, playerHash)
 		} else {
-			// Join existing flight as a waiter.
 			inflight.waiters++
 			solver.mu.Unlock()
 			return solver.waitForFlight(ctx, inflight)
 		}
 	}
-	// Register a new flight. This goroutine is the first waiter.
 	preprocessCtx, cancel := context.WithCancel(context.Background())
 	inflight := &call{done: make(chan struct{}), cancel: cancel, waiters: 1}
 	solver.flight[playerHash] = inflight
 	solver.mu.Unlock()
 
-	// Start shared preprocessing in a dedicated goroutine.
 	go func() {
-		preprocessed, err := solver.preprocess(preprocessCtx, id, player)
+		started := time.Now()
+		preprocessed, cache, err := solver.preprocess(preprocessCtx, id, playerHash, player)
 		inflight.val = preprocessed
 		inflight.err = err
-
-		// Cache the result and remove the flight entry only if this flight
-		// still owns the map slot. An abandoned flight may have been replaced
-		// by a newer flight for the same hash; deleting unconditionally would
-		// remove the replacement.
-		solver.mu.Lock()
-		if err == nil {
-			solver.storePreprocessedLocked(playerHash, preprocessed)
+		inflight.cache = cache
+		if cache == provider.ChallengeCacheMiss {
+			inflight.elapsed = time.Since(started)
 		}
+		solver.mu.Lock()
 		if solver.flight[playerHash] == inflight {
 			delete(solver.flight, playerHash)
 		}
@@ -196,17 +225,13 @@ func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, playe
 }
 
 // waitForFlight blocks until the flight completes or the caller's context is
-// canceled. Cancellation coordinates under solver.mu: the waiter count is
-// decremented and abandonment is decided atomically with respect to new
-// joiners, preventing the race where a new waiter joins a flight that is
-// about to be canceled.
-func (solver *Solver) waitForFlight(ctx context.Context, inflight *call) (string, error) {
+// canceled. Cancellation coordinates under solver.mu so waiter departure and
+// abandonment remain atomic with respect to new joiners.
+func (solver *Solver) waitForFlight(ctx context.Context, inflight *call) (string, string, time.Duration, error) {
 	select {
 	case <-inflight.done:
-		return inflight.val, inflight.err
+		return inflight.val, inflight.cache, inflight.elapsed, inflight.err
 	case <-ctx.Done():
-		// Coordinate departure under the solver lock so that no new waiter
-		// can join between our decrement and the cancellation decision.
 		solver.mu.Lock()
 		inflight.waiters--
 		if inflight.waiters == 0 {
@@ -214,12 +239,18 @@ func (solver *Solver) waitForFlight(ctx context.Context, inflight *call) (string
 			inflight.cancel()
 		}
 		solver.mu.Unlock()
-		return "", ctx.Err()
+		category := provider.ChallengeHelperCanceled
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			category = provider.ChallengeHelperTimeout
+		}
+		return "", provider.ChallengeCacheMiss, -1, challengeFailure(category, provider.ChallengePhasePreprocess, ctx.Err())
 	}
 }
 
 // preprocess runs the expensive player parsing phase with an extended wall time.
-func (solver *Solver) preprocess(ctx context.Context, id, player string) (string, error) {
+// cache reports whether this solver invoked its helper after a miss or consumed
+// a completed entry published while it waited for the process-wide slot.
+func (solver *Solver) preprocess(ctx context.Context, id, playerHash, player string) (preprocessed string, cache string, err error) {
 	// Meriyah parsing is CPU- and memory-intensive. Running distinct player
 	// preprocessors concurrently can make otherwise valid scripts exceed the
 	// helper wall-time limit. Same-player calls are already coalesced above;
@@ -228,7 +259,17 @@ func (solver *Solver) preprocess(ctx context.Context, id, player string) (string
 	case playerPreprocessSlot <- struct{}{}:
 		defer func() { <-playerPreprocessSlot }()
 	case <-ctx.Done():
-		return "", ctx.Err()
+		category := provider.ChallengeHelperCanceled
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			category = provider.ChallengeHelperTimeout
+		}
+		return "", provider.ChallengeCacheMiss, challengeFailure(category, provider.ChallengePhasePreprocess, ctx.Err())
+	}
+
+	// Another solver may have populated the application-scoped cache while
+	// this helper waited for the process-wide preprocessing slot.
+	if preprocessed, ok := solver.lookupPreprocessed(playerHash); ok {
+		return preprocessed, provider.ChallengeCacheHit, nil
 	}
 
 	input := struct {
@@ -239,7 +280,7 @@ func (solver *Solver) preprocess(ctx context.Context, id, player string) (string
 	}{"player", player, []ChallengeRequest{}, true}
 	argument, err := json.Marshal(input)
 	if err != nil {
-		return "", fmt.Errorf("encode EJS preprocess input: %w", err)
+		return "", provider.ChallengeCacheMiss, challengeFailure(provider.ChallengeHelperInvalidInput, provider.ChallengePhasePreprocess, fmt.Errorf("encode EJS preprocess input: %w", err))
 	}
 	response := solver.executor.Execute(ctx, protocol.Request{
 		Version: protocol.Version, ID: preprocessRequestID(id), Operation: protocol.OperationCall,
@@ -251,7 +292,7 @@ func (solver *Solver) preprocess(ctx context.Context, id, player string) (string
 		},
 	})
 	if response.Error != nil {
-		return "", fmt.Errorf("EJS helper %s: %s", response.Error.Code, response.Error.Message)
+		return "", provider.ChallengeCacheMiss, challengeFailure(helperCategory(response.Error.Code), provider.ChallengePhasePreprocess, fmt.Errorf("EJS helper %s", response.Error.Code))
 	}
 	var output struct {
 		Type               string `json:"type"`
@@ -259,15 +300,18 @@ func (solver *Solver) preprocess(ctx context.Context, id, player string) (string
 		PreprocessedPlayer string `json:"preprocessed_player"`
 	}
 	if err := json.Unmarshal(response.Result, &output); err != nil {
-		return "", errors.New("EJS returned malformed preprocess JSON")
+		return "", provider.ChallengeCacheMiss, challengeFailure(provider.ChallengeHelperMalformed, provider.ChallengePhasePreprocess, errors.New("EJS returned malformed preprocess JSON"))
 	}
 	if output.Type != "result" {
-		return "", errors.New("EJS preprocess failed")
+		return "", provider.ChallengeCacheMiss, challengeFailure(provider.ChallengeHelperMalformed, provider.ChallengePhasePreprocess, errors.New("EJS preprocess failed"))
 	}
 	if output.PreprocessedPlayer == "" {
-		return "", errors.New("EJS preprocess returned empty player")
+		return "", provider.ChallengeCacheMiss, challengeFailure(provider.ChallengeHelperEmptyPlayer, provider.ChallengePhasePreprocess, errors.New("EJS preprocess returned empty player"))
 	}
-	return output.PreprocessedPlayer, nil
+	// Publish while still owning the process-wide slot so a queued solver
+	// observes the completed entry instead of starting duplicate work.
+	solver.storePreprocessed(playerHash, output.PreprocessedPlayer)
+	return output.PreprocessedPlayer, provider.ChallengeCacheMiss, nil
 }
 
 const preprocessRequestIDSuffix = "-preprocess"
@@ -293,7 +337,7 @@ func (solver *Solver) solve(ctx context.Context, id, preprocessed string, reques
 	}{"preprocessed", preprocessed, requests}
 	argument, err := json.Marshal(input)
 	if err != nil {
-		return Result{}, fmt.Errorf("encode EJS solve input: %w", err)
+		return Result{}, challengeFailure(provider.ChallengeHelperInvalidInput, provider.ChallengePhaseSolve, fmt.Errorf("encode EJS solve input: %w", err))
 	}
 	response := solver.executor.Execute(ctx, protocol.Request{
 		Version: protocol.Version, ID: id, Operation: protocol.OperationCall,
@@ -304,11 +348,11 @@ func (solver *Solver) solve(ctx context.Context, id, preprocessed string, reques
 		},
 	})
 	if response.Error != nil {
-		return Result{}, fmt.Errorf("EJS helper %s: %s", response.Error.Code, response.Error.Message)
+		return Result{}, challengeFailure(helperCategory(response.Error.Code), provider.ChallengePhaseSolve, fmt.Errorf("EJS helper %s", response.Error.Code))
 	}
 	result, err := decodeOutput(response.Result, requests)
 	if err != nil {
-		return Result{}, err
+		return Result{}, challengeFailure(provider.ChallengeHelperMalformed, provider.ChallengePhaseSolve, err)
 	}
 	if outputPreprocessed {
 		result.PreprocessedPlayer = preprocessed
@@ -317,15 +361,16 @@ func (solver *Solver) solve(ctx context.Context, id, preprocessed string, reques
 }
 
 func (solver *Solver) lookupPreprocessed(hash string) (string, bool) {
-	solver.mu.Lock()
-	defer solver.mu.Unlock()
-	value, ok := solver.cache[hash]
+	cache := solver.preprocessed
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	value, ok := cache.entries[hash]
 	if ok {
 		// Move to end (most recently used).
-		for i, h := range solver.order {
+		for i, h := range cache.order {
 			if h == hash {
-				solver.order = append(solver.order[:i], solver.order[i+1:]...)
-				solver.order = append(solver.order, hash)
+				cache.order = append(cache.order[:i], cache.order[i+1:]...)
+				cache.order = append(cache.order, hash)
 				break
 			}
 		}
@@ -333,19 +378,26 @@ func (solver *Solver) lookupPreprocessed(hash string) (string, bool) {
 	return value, ok
 }
 
-// storePreprocessedLocked stores a preprocessed player in the LRU cache.
-// The caller must hold solver.mu.
-func (solver *Solver) storePreprocessedLocked(hash, preprocessed string) {
-	if _, exists := solver.cache[hash]; exists {
+func (solver *Solver) storePreprocessed(hash, preprocessed string) {
+	cache := solver.preprocessed
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.storeLocked(hash, preprocessed)
+}
+
+// storeLocked stores a preprocessed player in the LRU cache. The caller must
+// hold cache.mu.
+func (cache *PreprocessedPlayerCache) storeLocked(hash, preprocessed string) {
+	if _, exists := cache.entries[hash]; exists {
 		return
 	}
-	if len(solver.cache) >= MaxCachedPlayers {
-		oldest := solver.order[0]
-		solver.order = solver.order[1:]
-		delete(solver.cache, oldest)
+	if len(cache.entries) >= MaxCachedPlayers {
+		oldest := cache.order[0]
+		cache.order = cache.order[1:]
+		delete(cache.entries, oldest)
 	}
-	solver.cache[hash] = preprocessed
-	solver.order = append(solver.order, hash)
+	cache.entries[hash] = preprocessed
+	cache.order = append(cache.order, hash)
 }
 
 func validateChallenges(requests []ChallengeRequest) error {
