@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,11 +63,19 @@ type Store struct {
 	root        string
 	options     Options
 	writeGate   chan struct{}
-	rootLock    *os.File
+	rootLock    *cacheRootLock
 	rootLockErr error
 }
 
 var cacheRootGates sync.Map
+
+// cacheRootLock retains the platform lock handle. Windows also keeps an open
+// root-directory handle while the sentinel lock is held, preventing root
+// replacement between identity validation and a cache operation.
+type cacheRootLock struct {
+	file  *os.File
+	extra *os.File
+}
 
 // Open validates or creates root without following a root symlink.
 func Open(root string, options Options) (*Store, error) {
@@ -125,9 +134,9 @@ func (store *Store) Store(ctx context.Context, namespace, key string, value []by
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := secureFile(temporaryPath); err != nil {
 		temporary.Close()
-		return fmt.Errorf("%w: secure temporary entry", ErrIO)
+		return err
 	}
 	digest := sha256.Sum256(value)
 	header := magic + strconv.FormatInt(expires, 10) + "\n" + strconv.FormatInt(int64(len(value)), 10) + "\n" + hex.EncodeToString(digest[:]) + "\n"
@@ -187,11 +196,11 @@ func (store *Store) checkNamespaceBounds(directory, replacedPath string, replace
 			return ErrUnsafePath
 		}
 		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() || entry.Type()&os.ModeSymlink != 0 {
+		entryPath := filepath.Join(directory, entry.Name())
+		if err != nil || !info.Mode().IsRegular() || entry.Type()&os.ModeSymlink != 0 || !secureExistingFile(entryPath) {
 			return ErrUnsafePath
 		}
 		count++
-		entryPath := filepath.Join(directory, entry.Name())
 		if entryPath == replacedPath {
 			replacing = true
 			continue
@@ -234,7 +243,7 @@ func (store *Store) Lookup(ctx context.Context, namespace, key string) ([]byte, 
 	if err != nil {
 		return nil, false, fmt.Errorf("%w: inspect entry", ErrIO)
 	}
-	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || !secureExistingFile(path) {
 		return nil, false, ErrUnsafePath
 	}
 	file, err := os.Open(path)
@@ -288,6 +297,64 @@ func (store *Store) Lookup(ctx context.Context, namespace, key string) ([]byte, 
 	return value, true, nil
 }
 
+// PruneOldest retains at most retain regular entries in namespace. Entries are
+// ordered by modification time, then filename, so eviction is deterministic.
+// Links, special files, and unknown entry names fail closed.
+func (store *Store) PruneOldest(ctx context.Context, namespace string, retain int) error {
+	if retain < 0 {
+		return ErrInvalidName
+	}
+	if err := store.acquireWrite(ctx); err != nil {
+		return err
+	}
+	defer store.releaseWrite()
+	directory, err := store.namespacePath(namespace, false)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	type candidate struct {
+		name string
+		mod  time.Time
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return fmt.Errorf("%w: list namespace", ErrIO)
+	}
+	items := make([]candidate, 0, len(entries))
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !validEntryFilename(entry.Name()) {
+			return ErrUnsafePath
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil || !info.Mode().IsRegular() || entry.Type()&os.ModeSymlink != 0 || !secureExistingFile(filepath.Join(directory, entry.Name())) {
+			return ErrUnsafePath
+		}
+		items = append(items, candidate{name: entry.Name(), mod: info.ModTime()})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].mod.Equal(items[j].mod) {
+			return items[i].name < items[j].name
+		}
+		return items[i].mod.Before(items[j].mod)
+	})
+	for len(items) > retain {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := removeRegular(filepath.Join(directory, items[0].name)); err != nil {
+			return err
+		}
+		items = items[1:]
+	}
+	return nil
+}
+
 // Remove deletes one entry without following symlinks.
 func (store *Store) Remove(ctx context.Context, namespace, key string) error {
 	if err := ctx.Err(); err != nil {
@@ -314,14 +381,69 @@ func (store *Store) RemoveNamespace(ctx context.Context, namespace string) error
 		return err
 	}
 	defer store.releaseWrite()
-	directory, err := store.namespacePath(namespace, false)
+	return removeNamespace(ctx, store.root, namespace)
+}
+
+// RemoveNamespaceRoot removes one namespace without creating root when it is
+// absent. It is intended for explicit cache-clear controls.
+func RemoveNamespaceRoot(ctx context.Context, root, namespace string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if root == "" || strings.ContainsRune(root, 0) || filepath.Clean(root) != root || !validNamespace(namespace) {
+		return ErrUnsafePath
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return ErrUnsafePath
+	}
+	info, err := os.Lstat(absolute)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: inspect directory", ErrIO)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return ErrUnsafePath
+	}
+	gate := cacheRootGate(absolute)
+	if err := acquireCacheRootGate(ctx, gate); err != nil {
+		return err
+	}
+	defer releaseCacheRootGate(gate)
+	lock, err := lockCacheRoot(ctx, absolute)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	defer unlockCacheRoot(lock)
+	return removeNamespace(ctx, absolute, namespace)
+}
+
+func removeNamespace(ctx context.Context, root, namespace string) error {
+	if !validNamespace(namespace) {
+		return ErrInvalidName
+	}
+	if err := secureExistingDirectory(root); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	directory := filepath.Join(root, namespace)
+	if err := secureExistingDirectory(directory); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
 	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("%w: list namespace", ErrIO)
 	}
@@ -333,7 +455,7 @@ func (store *Store) RemoveNamespace(ctx context.Context, namespace string) error
 			return ErrUnsafePath
 		}
 		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() || entry.Type()&os.ModeSymlink != 0 {
+		if err != nil || !info.Mode().IsRegular() || entry.Type()&os.ModeSymlink != 0 || !secureExistingFile(filepath.Join(directory, entry.Name())) {
 			return ErrUnsafePath
 		}
 		if err := os.Remove(filepath.Join(directory, entry.Name())); err != nil {

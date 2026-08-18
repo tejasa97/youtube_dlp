@@ -35,7 +35,9 @@ func broadCompatibilityComposition() engine.Composition {
 			ServiceIdentity:        broadServiceIdentity,
 			Reload:                 broadReload,
 		},
-	)
+	).WithPersistentChallengeSolver(broadPersistentChallengeSolver, func(ctx context.Context, options engine.EJSPreprocessedPlayerCacheOptions) error {
+		return ejs.ClearPersistentPlayerCache(ctx, ejs.PersistentPlayerCacheOptions{Directory: options.Directory, TTL: options.TTL, MaxEntries: options.MaxEntries})
+	})
 }
 
 func productRegistry() *extractor.Registry {
@@ -67,15 +69,21 @@ func broadProviderRequest(operation providerapi.Operation, request engine.Reques
 }
 
 func broadChallengeSolver(path string) (providerapi.ChallengeSolver, io.Closer, error) {
+	return broadPersistentChallengeSolver(engine.ChallengeSolverConfig{Path: path})
+}
+
+func broadPersistentChallengeSolver(config engine.ChallengeSolverConfig) (providerapi.ChallengeSolver, io.Closer, error) {
 	hash, err := ejs.BundledScriptHash()
 	if err != nil {
 		return nil, nil, err
 	}
-	client, err := supervisor.New(supervisor.Config{Path: path, MemoryBytes: ejs.SolverMemoryBytes, TrustedScriptHash: hash})
+	client, err := supervisor.New(supervisor.Config{Path: config.Path, MemoryBytes: ejs.SolverMemoryBytes, TrustedScriptHash: hash})
 	if err != nil {
 		return nil, nil, err
 	}
-	solver, err := ejs.New(client)
+	solver, err := ejs.NewWithPersistentPlayerCache(client, ejs.NewPreprocessedPlayerCache(), ejs.PersistentPlayerCacheOptions{
+		Directory: config.EJSPreprocessedPlayerCache.Directory, TTL: config.EJSPreprocessedPlayerCache.TTL, MaxEntries: config.EJSPreprocessedPlayerCache.MaxEntries,
+	})
 	if err != nil {
 		_ = client.Close()
 		return nil, nil, err

@@ -14,11 +14,12 @@ import (
 )
 
 type (
-	Client  = engine.Client
-	Runner  = engine.Runner
-	Request = engine.Request
-	Result  = engine.Result
-	Option  = engine.Option
+	Client                            = engine.Client
+	Runner                            = engine.Runner
+	Request                           = engine.Request
+	EJSPreprocessedPlayerCacheOptions = engine.EJSPreprocessedPlayerCacheOptions
+	Result                            = engine.Result
+	Option                            = engine.Option
 
 	Error                   = engine.Error
 	ErrorCategory           = engine.ErrorCategory
@@ -311,6 +312,9 @@ func RenderOutputArtifacts(request OutputPreviewRequest) ([]ArtifactDeclaration,
 
 func WithEventHandler(handler EventHandler) Option { return engine.WithEventHandler(handler) }
 func WithJavaScriptHelper(path string) Option      { return engine.WithJavaScriptHelper(path) }
+func WithEJSPreprocessedPlayerCache(options EJSPreprocessedPlayerCacheOptions) Option {
+	return engine.WithEJSPreprocessedPlayerCache(options)
+}
 func WithTelemetryCollector(collector *TelemetryCollector) Option {
 	return engine.WithTelemetryCollector(collector)
 }

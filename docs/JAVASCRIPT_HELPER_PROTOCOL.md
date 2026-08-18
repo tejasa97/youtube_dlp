@@ -30,8 +30,15 @@ a preprocess phase (meriyah-based player parsing, up to 55 s wall time) and
 a solve phase (transform execution, up to 10 s). Preprocessed players are
 cached by SHA-256 in a bounded in-memory LRU (max 8 entries). A focused
 YouTube composition owns that completed-entry cache, so applications may reuse
-one composition across short-lived clients without retaining player data on
-disk. In-flight preprocessing remains local to its owning solver/helper so
+one composition across short-lived clients. By default it retains no player
+data on disk. An embedding may explicitly configure the separate private EJS
+cache tier, which retains only generated `preprocessed_player` artifacts under
+opaque source/solver/schema hashes. The generated artifact can retain public
+player-derived code/literals, including public URL strings, but never caller
+page/media/request URLs, cookies, headers, runtime challenges, signatures, or
+solve inputs/results. That tier has private permissions, integrity checks, atomic replacement, a seven-day TTL,
+deterministic eight-entry eviction, and treats unsafe/corrupt entries as misses
+(the configured root itself remains fail-closed). In-flight preprocessing remains local to its owning solver/helper so
 closing one client cannot terminate another client's shared waiter. Concurrent
 requests through one solver are coalesced via a flight-owned singleflight;
 separate solvers serialize on the process-wide preprocessing slot and recheck

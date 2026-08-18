@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -467,6 +468,14 @@ func WithJavaScriptHelper(path string) Option {
 	return func(client *Client) { client.javascriptHelper = path }
 }
 
+// WithEJSPreprocessedPlayerCache enables a private, bounded local disk cache
+// for generated YouTube player transforms. It is separate from Request.CacheDir
+// and excludes caller request/media URLs, cookies, headers, challenge data, and
+// solve inputs/results; generated public player code may contain public URLs.
+func WithEJSPreprocessedPlayerCache(options EJSPreprocessedPlayerCacheOptions) Option {
+	return func(client *Client) { client.ejsPreprocessedPlayerCache = options }
+}
+
 // WithTelemetryCollector enables bounded aggregate observations. Telemetry is
 // disabled by default and never changes an operation's result or error.
 func WithTelemetryCollector(collector *TelemetryCollector) Option {
@@ -497,21 +506,22 @@ type Runner interface {
 // downloads sharing the same YouTube player script skip redundant parsing.
 // A configured event handler must provide its own synchronization when shared.
 type Client struct {
-	composition           Composition
-	handler               EventHandler
-	javascriptHelper      string
-	browserCookieImporter func(context.Context, chromium.Options) (chromium.Result, error)
-	linuxCookieImporter   func(context.Context, chromiumlinux.Options) (chromiumlinux.Result, error)
-	windowsCookieImporter func(context.Context, chromiumwindows.Options) (chromiumwindows.Result, error)
-	firefoxCookieImporter func(context.Context, firefox.Options) (firefox.Result, error)
-	safariCookieImporter  func(context.Context, safari.Options) (safari.Result, error)
-	platform              string
-	plugins               []*InstalledPlugin
-	pluginApprover        PluginPermissionApprover
-	telemetry             *TelemetryCollector
-	potResolver           providerapi.POTResolver
-	potResolverErr        error
-	transportFactory      func(network.Config) (*network.Client, error)
+	composition                Composition
+	handler                    EventHandler
+	javascriptHelper           string
+	ejsPreprocessedPlayerCache EJSPreprocessedPlayerCacheOptions
+	browserCookieImporter      func(context.Context, chromium.Options) (chromium.Result, error)
+	linuxCookieImporter        func(context.Context, chromiumlinux.Options) (chromiumlinux.Result, error)
+	windowsCookieImporter      func(context.Context, chromiumwindows.Options) (chromiumwindows.Result, error)
+	firefoxCookieImporter      func(context.Context, firefox.Options) (firefox.Result, error)
+	safariCookieImporter       func(context.Context, safari.Options) (safari.Result, error)
+	platform                   string
+	plugins                    []*InstalledPlugin
+	pluginApprover             PluginPermissionApprover
+	telemetry                  *TelemetryCollector
+	potResolver                providerapi.POTResolver
+	potResolverErr             error
+	transportFactory           func(network.Config) (*network.Client, error)
 
 	solverMu     sync.Mutex
 	sharedSolver *lazyChallengeSolver
@@ -2550,7 +2560,12 @@ func (client *Client) sharedChallengeSolver() *lazyChallengeSolver {
 	defer client.solverMu.Unlock()
 	if client.sharedSolver == nil {
 		client.sharedSolver = &lazyChallengeSolver{
-			path: discoverJavaScriptHelper(client.javascriptHelper), factory: client.composition.hooks.ChallengeSolverFactory,
+			config: ChallengeSolverConfig{
+				Path:                       discoverJavaScriptHelper(client.javascriptHelper),
+				EJSPreprocessedPlayerCache: client.ejsPreprocessedPlayerCache,
+			},
+			factory:           client.composition.hooks.ChallengeSolverFactory,
+			persistentFactory: client.composition.persistentSolverFactory,
 		}
 	}
 	return client.sharedSolver
@@ -2568,14 +2583,42 @@ func (client *Client) Close() {
 	}
 }
 
+// ClearEJSPreprocessedPlayerCache clears only the embedding-configured EJS
+// transform cache. It is independent of media/cache URL state and leaves all
+// other caller-owned files untouched.
+func (client *Client) ClearEJSPreprocessedPlayerCache(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	client.solverMu.Lock()
+	solver := client.sharedSolver
+	clearer := client.composition.challengeCacheClearer
+	options := client.ejsPreprocessedPlayerCache
+	client.solverMu.Unlock()
+	if solver != nil {
+		if cleared, err := solver.ClearPreprocessedPlayers(ctx); cleared {
+			return err
+		}
+	}
+	if clearer == nil {
+		return nil
+	}
+	return clearer(ctx, options)
+}
+
+type preprocessedPlayerCacheClearer interface {
+	ClearPreprocessedPlayers(context.Context) error
+}
+
 type lazyChallengeSolver struct {
-	mu      sync.Mutex
-	path    string
-	factory ChallengeSolverFactory
-	solver  providerapi.ChallengeSolver
-	closer  interface{ Close() error }
-	active  sync.WaitGroup
-	closed  bool
+	mu                sync.Mutex
+	config            ChallengeSolverConfig
+	factory           ChallengeSolverFactory
+	persistentFactory PersistentChallengeSolverFactory
+	solver            providerapi.ChallengeSolver
+	closer            interface{ Close() error }
+	active            sync.WaitGroup
+	closed            bool
 }
 
 // Available reports whether this lazy solver has enough configuration to start
@@ -2588,7 +2631,23 @@ func (solver *lazyChallengeSolver) Available() bool {
 	}
 	solver.mu.Lock()
 	defer solver.mu.Unlock()
-	return !solver.closed && solver.factory != nil && solver.path != ""
+	return !solver.closed && (solver.factory != nil || solver.persistentFactory != nil) && solver.config.Path != ""
+}
+
+func (solver *lazyChallengeSolver) ClearPreprocessedPlayers(ctx context.Context) (bool, error) {
+	if solver == nil {
+		return false, nil
+	}
+	solver.mu.Lock()
+	active := solver.solver
+	solver.mu.Unlock()
+	if active == nil {
+		return false, nil
+	}
+	if clearer, ok := active.(preprocessedPlayerCacheClearer); ok {
+		return true, clearer.ClearPreprocessedPlayers(ctx)
+	}
+	return false, nil
 }
 
 func (solver *lazyChallengeSolver) SolvePlayer(
@@ -2604,11 +2663,18 @@ func (solver *lazyChallengeSolver) SolvePlayer(
 		return providerapi.ChallengeResult{}, unavailableChallengeFailure(errors.New("solver is closed"))
 	}
 	if solver.solver == nil {
-		if solver.factory == nil {
+		if solver.factory == nil && solver.persistentFactory == nil {
 			solver.mu.Unlock()
 			return providerapi.ChallengeResult{}, unavailableChallengeFailure(providerapi.ErrChallengeSolver)
 		}
-		challengeSolver, closer, err := solver.factory(solver.path)
+		var challengeSolver providerapi.ChallengeSolver
+		var closer io.Closer
+		var err error
+		if solver.persistentFactory != nil {
+			challengeSolver, closer, err = solver.persistentFactory(solver.config)
+		} else {
+			challengeSolver, closer, err = solver.factory(solver.config.Path)
+		}
 		if err != nil {
 			solver.mu.Unlock()
 			// The event exposes only the closed unavailable category, while the

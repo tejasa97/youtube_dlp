@@ -53,6 +53,13 @@ func NewComposition() engine.Composition {
 			ServiceIdentity: serviceIdentity,
 			Reload:          reload,
 		},
+	).WithPersistentChallengeSolver(
+		func(config engine.ChallengeSolverConfig) (providerapi.ChallengeSolver, io.Closer, error) {
+			return newPersistentChallengeSolver(config, preprocessedPlayers)
+		},
+		func(ctx context.Context, options engine.EJSPreprocessedPlayerCacheOptions) error {
+			return ejs.ClearPersistentPlayerCache(ctx, ejs.PersistentPlayerCacheOptions{Directory: options.Directory, TTL: options.TTL, MaxEntries: options.MaxEntries})
+		},
 	)
 }
 
@@ -86,15 +93,21 @@ func adaptRequest(operation providerapi.Operation, request engine.Request) inter
 }
 
 func newChallengeSolver(path string, preprocessedPlayers *ejs.PreprocessedPlayerCache) (providerapi.ChallengeSolver, io.Closer, error) {
+	return newPersistentChallengeSolver(engine.ChallengeSolverConfig{Path: path}, preprocessedPlayers)
+}
+
+func newPersistentChallengeSolver(config engine.ChallengeSolverConfig, preprocessedPlayers *ejs.PreprocessedPlayerCache) (providerapi.ChallengeSolver, io.Closer, error) {
 	hash, err := ejs.BundledScriptHash()
 	if err != nil {
 		return nil, nil, err
 	}
-	client, err := supervisor.New(supervisor.Config{Path: path, MemoryBytes: ejs.SolverMemoryBytes, TrustedScriptHash: hash})
+	client, err := supervisor.New(supervisor.Config{Path: config.Path, MemoryBytes: ejs.SolverMemoryBytes, TrustedScriptHash: hash})
 	if err != nil {
 		return nil, nil, err
 	}
-	solver, err := ejs.NewWithPreprocessedPlayerCache(client, preprocessedPlayers)
+	solver, err := ejs.NewWithPersistentPlayerCache(client, preprocessedPlayers, ejs.PersistentPlayerCacheOptions{
+		Directory: config.EJSPreprocessedPlayerCache.Directory, TTL: config.EJSPreprocessedPlayerCache.TTL, MaxEntries: config.EJSPreprocessedPlayerCache.MaxEntries,
+	})
 	if err != nil {
 		_ = client.Close()
 		return nil, nil, err

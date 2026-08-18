@@ -1472,6 +1472,23 @@ func TestClientExtractAudioPostprocessorIntegration(t *testing.T) {
 	}
 }
 
+func TestClearEJSPreprocessedPlayerCacheFallsBackToCompositionHook(t *testing.T) {
+	called := 0
+	client := &Client{
+		composition: Composition{challengeCacheClearer: func(context.Context, EJSPreprocessedPlayerCacheOptions) error {
+			called++
+			return nil
+		}},
+		sharedSolver: &lazyChallengeSolver{solver: stubChallengeSolver{}},
+	}
+	if err := client.ClearEJSPreprocessedPlayerCache(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 {
+		t.Fatalf("composition clearer calls = %d, want 1", called)
+	}
+}
+
 func TestJavaScriptHelperConfigurationTakesPrecedence(t *testing.T) {
 	configured := filepath.Join(t.TempDir(), "custom-helper")
 	if got := discoverJavaScriptHelper(configured); got != configured {
@@ -1488,7 +1505,7 @@ func TestLazyChallengeSolverAvailability(t *testing.T) {
 		t.Fatal("unconfigured solver is available")
 	}
 	configured := &lazyChallengeSolver{
-		path: "fixture-helper",
+		config: ChallengeSolverConfig{Path: "fixture-helper"},
 		factory: func(string) (providerapi.ChallengeSolver, io.Closer, error) {
 			return nil, nil, nil
 		},

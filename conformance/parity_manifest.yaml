@@ -954,6 +954,14 @@ capabilities:
       - internal/javascript/ejs.TestVerifyAssetsAndInputBounds
       - internal/javascript/ejs.TestPreprocessCacheReuse
       - internal/javascript/ejs.TestPreprocessCacheEviction
+      - internal/javascript/ejs.TestPersistentPlayerCacheDisabledByDefault
+      - internal/javascript/ejs.TestPersistentPlayerCacheReusesAcrossFreshSolvers
+      - internal/javascript/ejs.TestPersistentPlayerCacheSemanticFailureFallsBackToFreshPreprocess
+      - internal/javascript/ejs.TestPersistentPlayerCacheSemanticFailureDoesNotRetryCancellation
+      - internal/javascript/ejs.TestPersistentPlayerCacheExpiryCorruptionAndVersionFallback
+      - internal/javascript/ejs.TestPersistentPlayerCacheBoundedConcurrentAndPrivate
+      - internal/javascript/ejs.TestPersistentPlayerCacheTightensExistingBoundOnOpen
+      - internal/javascript/ejs.TestPersistentPlayerCacheRejectsUnsafeRootAndCancellationAndClears
       - internal/javascript/ejs.TestSingleflightCoalescesPreprocessing
       - internal/javascript/ejs.TestSingleflightFollowerCancellation
       - internal/javascript/ejs.TestSingleflightCanceledLeaderDoesNotFailLiveFollower
@@ -987,8 +995,15 @@ capabilities:
       grant; arbitrary jsc scripts are rejected at 30 s.
       Normalize() additionally strips Trusted/TrustedWallTimeMS from
       non-EJS operations as defense in depth. The preprocessed-player LRU
-      cache (max 8) persists at the client level across downloads.
-      Concurrent cache misses are coalesced via a flight-owned singleflight:
+      cache (max 8) persists at the client level across downloads. Embeddings
+      may opt in to a private disk tier holding only generated
+      preprocessed_player artifacts under opaque player/source-solver-schema
+      keys. Those artifacts can retain public player-derived code/literals,
+      including public URL strings, but never caller page/media/request URLs,
+      cookies, headers, runtime challenges, signatures, solve inputs/results,
+      or other user secrets. Integrity/expiry/unsafe-entry failures are misses;
+      a semantic solve failure from disk-origin data invalidates it and retries
+      fresh preprocessing once. Concurrent cache misses are coalesced via a flight-owned singleflight:
       preprocessing runs in a dedicated goroutine; all callers select
       between flight completion and their own context; when all waiters
       cancel, shared preprocessing is canceled; the result is cached
@@ -1003,6 +1018,9 @@ capabilities:
       TestSingleflightAllWaitersCancelCancelsPreprocessing,
       TestSingleflightCanceledLeaderNoFollowersReturnsPromptly,
       TestFlightOwnershipAbandonedDoesNotDeleteReplacement,
+      TestPersistentPlayerCacheSemanticFailureFallsBackToFreshPreprocess,
+      TestPersistentPlayerCacheSemanticFailureDoesNotRetryCancellation,
+      TestPersistentPlayerCacheTightensExistingBoundOnOpen,
       TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves.
       Live validation: unavailable because suitable service conditions and
       redistributable fixtures are absent. Remaining deviation: no sanitized

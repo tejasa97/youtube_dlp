@@ -1,3 +1,5 @@
+//go:build !windows
+
 package cache
 
 import (
@@ -26,6 +28,22 @@ func secureDirectory(path string) error {
 	return nil
 }
 
+func secureExistingFile(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0
+}
+
+func secureFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return ErrUnsafePath
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("%w: secure file", ErrIO)
+	}
+	return nil
+}
+
 func secureExistingDirectory(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -48,7 +66,7 @@ func rejectExistingNonRegular(path string) error {
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return ErrUnsafePath
 	}
-	return nil
+	return secureFile(path)
 }
 
 func removeRegular(path string) error {
