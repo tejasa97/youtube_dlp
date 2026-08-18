@@ -3,6 +3,7 @@ package ejs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tejasa97/youtube_dlp/engine/provider"
 	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
 	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
 )
@@ -157,6 +159,15 @@ func TestPreprocessCacheReuse(t *testing.T) {
 	if firstCalls != 2 {
 		t.Fatalf("first call executor invocations = %d, want 2 (preprocess + solve)", firstCalls)
 	}
+	if result1.Diagnostics.Cache != provider.ChallengeCacheMiss {
+		t.Fatalf("first cache=%q", result1.Diagnostics.Cache)
+	}
+	if result1.Diagnostics.PreprocessBucket == provider.ChallengeBucketSkipped {
+		t.Fatal("first preprocess must not be skipped")
+	}
+	if result1.Diagnostics.SolveBucket == provider.ChallengeBucketNone || result1.Diagnostics.SolveBucket == provider.ChallengeBucketSkipped {
+		t.Fatalf("first solve bucket=%q", result1.Diagnostics.SolveBucket)
+	}
 
 	// Second call with same player: cache hit, only solve = 1 executor call.
 	result2, err := solver.SolvePlayer(context.Background(), "second", string(player), requests, false)
@@ -169,6 +180,104 @@ func TestPreprocessCacheReuse(t *testing.T) {
 	secondCalls := counting.count() - firstCalls
 	if secondCalls != 1 {
 		t.Fatalf("second call executor invocations = %d, want 1 (solve only, cache hit)", secondCalls)
+	}
+	if result2.Diagnostics.Cache != provider.ChallengeCacheHit {
+		t.Fatalf("second cache=%q", result2.Diagnostics.Cache)
+	}
+	if result2.Diagnostics.PreprocessBucket != provider.ChallengeBucketSkipped {
+		t.Fatalf("second preprocess=%q", result2.Diagnostics.PreprocessBucket)
+	}
+	if result2.Diagnostics.SolveBucket == provider.ChallengeBucketNone || result2.Diagnostics.SolveBucket == provider.ChallengeBucketSkipped {
+		t.Fatalf("second solve bucket=%q", result2.Diagnostics.SolveBucket)
+	}
+	if strings.Contains(result1.Diagnostics.EventMessage(), "https://") || strings.Contains(result2.Diagnostics.EventMessage(), "player") {
+		t.Fatalf("cache diagnostics leaked identity: %q / %q", result1.Diagnostics.EventMessage(), result2.Diagnostics.EventMessage())
+	}
+}
+
+func TestPreprocessCacheSharedAcrossSolvers(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := NewPreprocessedPlayerCache()
+	firstExecutor := &countingExecutor{inner: engine.New(4)}
+	secondExecutor := &countingExecutor{inner: engine.New(4)}
+	first, err := NewWithPreprocessedPlayerCache(firstExecutor, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewWithPreprocessedPlayerCache(secondExecutor, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	if _, err := first.SolvePlayer(context.Background(), "first-client", string(player), requests, false); err != nil {
+		t.Fatal(err)
+	}
+	if calls := firstExecutor.count(); calls != 2 {
+		t.Fatalf("first solver calls = %d, want preprocess and solve", calls)
+	}
+	result, err := second.SolvePlayer(context.Background(), "second-client", string(player), requests, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Responses[0].Data["abc"] != "cba-n" {
+		t.Fatalf("second result = %#v", result)
+	}
+	if calls := secondExecutor.count(); calls != 1 {
+		t.Fatalf("second solver calls = %d, want solve only from shared cache", calls)
+	}
+}
+
+func TestConcurrentSolversReuseEntryAfterProcessSlotWait(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := NewPreprocessedPlayerCache()
+	firstExecutor := newGateExecutor(engine.New(4))
+	defer firstExecutor.releaseAll()
+	secondExecutor := &countingExecutor{inner: engine.New(4)}
+	first, err := NewWithPreprocessedPlayerCache(firstExecutor, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewWithPreprocessedPlayerCache(secondExecutor, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+	firstDone := make(chan error, 1)
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := first.SolvePlayer(context.Background(), "first-client", string(player), requests, false)
+		firstDone <- err
+	}()
+	if call := waitForEnter(t, firstExecutor.entered, 5*time.Second); call != 1 {
+		t.Fatalf("first preprocess call = %d", call)
+	}
+	go func() {
+		_, err := second.SolvePlayer(context.Background(), "second-client", string(player), requests, false)
+		secondDone <- err
+	}()
+
+	firstExecutor.release(1)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	if calls := secondExecutor.count(); calls != 1 {
+		t.Fatalf("queued second solver calls = %d, want solve only", calls)
+	}
+}
+
+func TestNewWithPreprocessedPlayerCacheRejectsNil(t *testing.T) {
+	if _, err := NewWithPreprocessedPlayerCache(engine.New(1), nil); err == nil {
+		t.Fatal("nil shared cache succeeded")
 	}
 }
 
@@ -193,9 +302,9 @@ func TestPreprocessCacheEviction(t *testing.T) {
 		}
 	}
 
-	solver.mu.Lock()
-	cacheSize := len(solver.cache)
-	solver.mu.Unlock()
+	solver.preprocessed.mu.Lock()
+	cacheSize := len(solver.preprocessed.entries)
+	solver.preprocessed.mu.Unlock()
 	if cacheSize > MaxCachedPlayers {
 		t.Fatalf("cache size = %d, exceeds max %d", cacheSize, MaxCachedPlayers)
 	}
@@ -218,8 +327,30 @@ func TestSolvePlayerCancellation(t *testing.T) {
 	if err == nil {
 		t.Fatal("canceled context succeeded")
 	}
-	if !strings.Contains(err.Error(), "canceled") && !strings.Contains(err.Error(), "timeout") {
+	if !strings.Contains(err.Error(), "canceled") {
 		t.Fatalf("unexpected error for canceled context: %v", err)
+	}
+	failure := challengeFailureDiagnostics(t, err)
+	if failure.HelperCategory != provider.ChallengeHelperCanceled || failure.Phase != provider.ChallengePhasePreprocess ||
+		failure.Cache != provider.ChallengeCacheMiss {
+		t.Fatalf("diagnostics=%#v", failure)
+	}
+}
+
+func TestSolvePlayerExpiredDeadline(t *testing.T) {
+	solver, err := New(engine.New(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	_, err = solver.SolvePlayer(ctx, "deadline", "var x=1;", []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}, false)
+	if err == nil {
+		t.Fatal("expired deadline succeeded")
+	}
+	failure := challengeFailureDiagnostics(t, err)
+	if failure.HelperCategory != provider.ChallengeHelperTimeout || failure.Phase != provider.ChallengePhasePreprocess {
+		t.Fatalf("diagnostics=%#v", failure)
 	}
 }
 
@@ -239,6 +370,17 @@ func TestSolvePlayerTimeout(t *testing.T) {
 	if !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("expected timeout error, got: %v", err)
 	}
+	failure := challengeFailureDiagnostics(t, err)
+	if failure.HelperCategory != provider.ChallengeHelperTimeout || failure.Phase != provider.ChallengePhasePreprocess {
+		t.Fatalf("diagnostics=%#v", failure)
+	}
+	message := failure.EventMessage()
+	if !strings.Contains(message, "error=timeout") || !strings.Contains(message, "phase=preprocess") {
+		t.Fatalf("message=%q", message)
+	}
+	if strings.Contains(message, "var x") || strings.Contains(err.Error(), "https://") {
+		t.Fatalf("timeout diagnostics leaked source: %v / %s", err, message)
+	}
 }
 
 // TestSolvePlayerMalformedPreprocessResponse verifies error handling when the
@@ -255,6 +397,10 @@ func TestSolvePlayerMalformedPreprocessResponse(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "malformed") {
 		t.Fatalf("expected malformed error, got: %v", err)
+	}
+	failure := challengeFailureDiagnostics(t, err)
+	if failure.HelperCategory != provider.ChallengeHelperMalformed || failure.Phase != provider.ChallengePhasePreprocess {
+		t.Fatalf("diagnostics=%#v", failure)
 	}
 }
 
@@ -771,12 +917,14 @@ func TestDistinctPlayerPreprocessingIsSerializedAcrossSolvers(t *testing.T) {
 
 	errs := make(chan error, 2)
 	go func() {
-		_, err := firstSolver.preprocess(context.Background(), "first", "var first = 1;")
+		player := "var first = 1;"
+		_, _, err := firstSolver.preprocess(context.Background(), "first", protocol.HashScript(player), player)
 		errs <- err
 	}()
 	<-executor.started
 	go func() {
-		_, err := secondSolver.preprocess(context.Background(), "second", "var second = 2;")
+		player := "var second = 2;"
+		_, _, err := secondSolver.preprocess(context.Background(), "second", protocol.HashScript(player), player)
 		errs <- err
 	}()
 
@@ -1098,6 +1246,15 @@ func TestFlightOwnershipAbandonedDoesNotDeleteReplacement(t *testing.T) {
 	if calls := gate.count(); calls != 2 {
 		t.Fatalf("expected exactly 2 preprocess calls, got %d", calls)
 	}
+}
+
+func challengeFailureDiagnostics(t *testing.T, err error) provider.ChallengeDiagnostics {
+	t.Helper()
+	var failure *provider.ChallengeFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("error %v is not ChallengeFailure", err)
+	}
+	return failure.Diagnostics
 }
 
 func waitForEnter(t *testing.T, entered <-chan int, timeout time.Duration) int {

@@ -15,7 +15,9 @@ interface maturity.
 
 ### Added
 
-- No entries yet.
+- Secret-free `javascript_challenge` events report closed cache status, latency
+  buckets, failure phase, and helper error category without player or request
+  data.
 
 ### Changed
 
@@ -40,6 +42,8 @@ interface maturity.
   bounded upstream TV fallback when JavaScript support is available.
 - YouTube watch metadata recovers the first collaborator's follower count when
   the ordinary owner subscriber count is absent.
+- Focused YouTube compositions can reuse completed EJS player preprocessing
+  across short-lived clients while keeping helper processes and flights isolated.
 
 ### Security
 

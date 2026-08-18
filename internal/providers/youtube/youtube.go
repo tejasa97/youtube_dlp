@@ -1559,7 +1559,7 @@ func resolveYouTubeURLs(ctx context.Context, request Request, webpageURL, videoI
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("%w: %v", ErrChallengeSolver, err)
+		return nil, fmt.Errorf("%w: %w", ErrChallengeSolver, err)
 	}
 	results := make(map[ejs.ChallengeType]map[string]string, len(solved.Responses))
 	for _, response := range solved.Responses {

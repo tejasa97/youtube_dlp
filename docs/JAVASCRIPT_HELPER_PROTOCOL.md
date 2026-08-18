@@ -28,14 +28,17 @@ memory, and two seconds. The host may impose stricter limits.
 The EJS challenge solver splits player processing into two bounded phases:
 a preprocess phase (meriyah-based player parsing, up to 55 s wall time) and
 a solve phase (transform execution, up to 10 s). Preprocessed players are
-cached by SHA-256 in a bounded LRU (max 8 entries) that persists at the
-client level across separate downloads. Concurrent requests for the same
-uncached player are coalesced via a flight-owned singleflight: preprocessing
-runs in a dedicated goroutine independent of any individual caller's context.
-Every caller selects between flight completion and its own context. When all
-waiters cancel, the shared preprocessing is canceled to avoid orphaned work;
-when at least one waiter remains, preprocessing continues. The result is
-cached atomically before the flight entry is removed.
+cached by SHA-256 in a bounded in-memory LRU (max 8 entries). A focused
+YouTube composition owns that completed-entry cache, so applications may reuse
+one composition across short-lived clients without retaining player data on
+disk. In-flight preprocessing remains local to its owning solver/helper so
+closing one client cannot terminate another client's shared waiter. Concurrent
+requests through one solver are coalesced via a flight-owned singleflight;
+separate solvers serialize on the process-wide preprocessing slot and recheck
+the completed cache before executing. Every flight waiter selects between
+completion and its own context. When all waiters cancel, shared work is
+canceled; when at least one remains, it continues. A successful transform is
+published before the process-wide slot is released.
 
 Scripts are keyed by lowercase SHA-256. A long-lived helper may cache compiled
 immutable programs by this hash, but each request receives a fresh runtime so
@@ -74,8 +77,15 @@ design-only and does not claim that any platform has already closed this race.
 The stable error codes distinguish invalid input, incompatible versions,
 syntax and execution failures, missing functions, unsupported modules, timeout,
 cancellation, input/output/memory limits, helper crashes, and protocol faults.
-Diagnostics must never include script bodies, arguments, cookies, or URLs with
-secret query values.
+Each EJS attempt emits a `javascript_challenge` event containing only a closed
+cache status, preprocess and solve duration buckets, and—on failure—a closed
+helper category and `preprocess` or `solve` phase. The event deliberately leaves
+URL, path, extractor, player identity, and operation inputs empty. Together with
+the existing extraction and download lifecycle events, this keeps EJS failures
+distinguishable from service-access failures before extraction and media
+transfer failures after extraction. Diagnostics must never include player
+hashes or source, challenges, signatures, tokens, cookies, media links, or other
+request URLs.
 
 This boundary contains no Python dependency. Oracle generation for migration
 fixtures remains outside the product and Python-free CI path.

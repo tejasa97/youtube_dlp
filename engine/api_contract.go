@@ -28,4 +28,5 @@ const (
 	EventArchiveMatch         = "archive_match"
 	EventMetadataWarning      = "metadata_warning"
 	EventMatchFilterSkipped   = "match_filter_skipped"
+	EventJavaScriptChallenge  = "javascript_challenge"
 )
