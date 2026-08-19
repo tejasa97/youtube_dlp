@@ -93,7 +93,7 @@ func run(ctx context.Context, args []string) error {
 	if err := release.WriteLicenseBundle(&licenseBundle, licenses); err != nil {
 		return err
 	}
-	namespace := "https://github.com/tejasa97/youtube_dlp/releases/" + *version + "/spdx"
+	namespace := "https://github.com/tejasa97/ytdlp-go/releases/" + *version + "/spdx"
 	if err := release.WriteSPDX(&sbom, release.SBOMOptions{Name: "ytdlp-go " + *version, Namespace: namespace, Created: epoch, Creator: "Tool: ytdlp-release", Components: components}); err != nil {
 		return err
 	}

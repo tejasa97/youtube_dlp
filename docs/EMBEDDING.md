@@ -7,8 +7,11 @@ requiring callers to inspect diagnostic text.
 
 ## Module availability
 
-The repository and root Go module use the canonical path
-`github.com/tejasa97/youtube_dlp`. Add the supported package with:
+The GitHub repository is
+[`github.com/tejasa97/ytdlp-go`](https://github.com/tejasa97/ytdlp-go).
+The Go module path remains `github.com/tejasa97/youtube_dlp` until a later
+migration; `go get github.com/tejasa97/ytdlp-go` will not resolve until then.
+Add the supported package with:
 
     go get github.com/tejasa97/youtube_dlp/pkg/ytdlp
 
@@ -17,7 +20,7 @@ module and replace it locally:
 
     require github.com/tejasa97/youtube_dlp v0.0.0
 
-    replace github.com/tejasa97/youtube_dlp => /absolute/path/to/youtube_dlp
+    replace github.com/tejasa97/youtube_dlp => /absolute/path/to/ytdlp-go
 
 The replacement is for local development only and should not be published by
 downstream modules.
