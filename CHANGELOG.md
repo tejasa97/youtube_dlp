@@ -15,6 +15,24 @@ interface maturity.
 
 ### Added
 
+- No entries yet.
+
+### Changed
+
+- No entries yet.
+
+### Fixed
+
+- No entries yet.
+
+### Security
+
+- No entries yet.
+
+## [0.2.4] - 2026-08-19
+
+### Added
+
 - Embeddings can explicitly configure a private, bounded persistent EJS
   preprocessing cache that stores only generated transforms; it is separate
   from media/cache URL state and can be cleared through the client API.
