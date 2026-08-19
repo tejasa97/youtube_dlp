@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/tejasa97/youtube_dlp/engine"
@@ -21,6 +22,13 @@ func TestAlphaAPIContractCompilesAndCategorizesCancellation(t *testing.T) {
 	}
 	if ytdlp.APIVersion != "v1alpha1" || len(ytdlp.CompatibilityReferenceCommit) != 40 {
 		t.Fatalf("API metadata = %q %q", ytdlp.APIVersion, ytdlp.CompatibilityReferenceCommit)
+	}
+}
+
+func TestAlphaEJSPersistentCacheAPIContract(t *testing.T) {
+	client := ytdlp.NewClient(ytdlp.WithEJSPreprocessedPlayerCache(ytdlp.EJSPreprocessedPlayerCacheOptions{Directory: filepath.Join(t.TempDir(), "ejs-cache")}))
+	if err := client.ClearEJSPreprocessedPlayerCache(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

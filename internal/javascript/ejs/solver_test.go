@@ -918,13 +918,13 @@ func TestDistinctPlayerPreprocessingIsSerializedAcrossSolvers(t *testing.T) {
 	errs := make(chan error, 2)
 	go func() {
 		player := "var first = 1;"
-		_, _, err := firstSolver.preprocess(context.Background(), "first", protocol.HashScript(player), player)
+		_, _, _, err := firstSolver.preprocess(context.Background(), "first", protocol.HashScript(player), player, false)
 		errs <- err
 	}()
 	<-executor.started
 	go func() {
 		player := "var second = 2;"
-		_, _, err := secondSolver.preprocess(context.Background(), "second", protocol.HashScript(player), player)
+		_, _, _, err := secondSolver.preprocess(context.Background(), "second", protocol.HashScript(player), player, false)
 		errs <- err
 	}()
 

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"io"
+	"time"
 
 	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
 )
@@ -13,6 +14,25 @@ type ClientProviderConfig struct {
 }
 
 type ChallengeSolverFactory func(string) (providerapi.ChallengeSolver, io.Closer, error)
+
+// EJSPreprocessedPlayerCacheOptions controls the optional private disk tier for
+// generated YouTube player transforms. Empty Directory leaves the historical
+// in-memory-only behavior unchanged.
+type EJSPreprocessedPlayerCacheOptions struct {
+	Directory  string
+	TTL        time.Duration
+	MaxEntries int
+}
+
+// ChallengeSolverConfig extends the legacy factory without changing it. The
+// Path is the isolated helper path; cache options are embedding-owned.
+type ChallengeSolverConfig struct {
+	Path                       string
+	EJSPreprocessedPlayerCache EJSPreprocessedPlayerCacheOptions
+}
+
+type PersistentChallengeSolverFactory func(ChallengeSolverConfig) (providerapi.ChallengeSolver, io.Closer, error)
+type ChallengeCacheClearer func(context.Context, EJSPreprocessedPlayerCacheOptions) error
 
 type ProviderHooks struct {
 	ChallengeSolverFactory ChallengeSolverFactory
@@ -33,8 +53,10 @@ type compositionState struct {
 }
 
 type Composition struct {
-	bundle providerapi.Bundle[compositionState]
-	hooks  ProviderHooks
+	bundle                  providerapi.Bundle[compositionState]
+	hooks                   ProviderHooks
+	persistentSolverFactory PersistentChallengeSolverFactory
+	challengeCacheClearer   ChallengeCacheClearer
 }
 
 func NewComposition[R providerapi.URLRequest](
@@ -67,6 +89,14 @@ func NewComposition[R providerapi.URLRequest](
 		),
 		hooks: hooks,
 	}
+}
+
+// WithPersistentChallengeSolver adds the optional embedding-owned EJS disk
+// cache seam without changing the legacy ProviderHooks composite layout.
+func (composition Composition) WithPersistentChallengeSolver(factory PersistentChallengeSolverFactory, clearer ChallengeCacheClearer) Composition {
+	composition.persistentSolverFactory = factory
+	composition.challengeCacheClearer = clearer
+	return composition
 }
 
 func (composition Composition) newRuntime(request Request, config ClientProviderConfig) (providerapi.Runtime[compositionState], error) {

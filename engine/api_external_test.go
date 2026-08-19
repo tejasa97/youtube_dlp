@@ -11,6 +11,9 @@ import (
 	"github.com/tejasa97/youtube_dlp/engine/value"
 )
 
+// ProviderHooks intentionally retains its original unkeyed-composite layout.
+var _ = engine.ProviderHooks{nil, nil, nil, nil, nil, nil, nil, nil, nil, nil}
+
 type typedOptions struct{ Enabled bool }
 
 type typedRequest struct {

@@ -66,7 +66,15 @@ The EJS solver now uses a two-phase preprocess/solve split with:
   The `Trusted` flag is in-process only (`json:"-"`) and never serialized.
 - A **bounded LRU cache** (max 8 entries) that persists at the client level
   across separate `Run` calls, so distinct downloads sharing the same player
-  script skip redundant preprocessing.
+  script skip redundant preprocessing. Embeddings may additionally opt in to a
+  private, disk-backed eight-entry/7-day cache of only generated transforms.
+  Those generated artifacts can retain public player-derived code/literals,
+  including public URL strings, but never caller page/media/request URLs,
+  cookies, headers, runtime challenges, signatures, or solve inputs/results.
+  Opaque source/solver/schema digests, integrity checks, atomic replacement,
+  permission checks, semantic-failure retry, and fail-open entry handling
+  preserve the isolation boundary. The persistent tier is independent of
+  media/cache URL state.
 - **Singleflight coordination** so concurrent requests for the same uncached
   player coalesce into exactly one preprocessing execution.
 
@@ -74,7 +82,7 @@ The EJS solver now uses a two-phase preprocess/solve split with:
 
 | Level | Evidence | Status |
 | --- | --- | --- |
-| Automated proof | `TestSupervisorTrustedWallTimeCrossesProcessBoundary` (EJS call with 45 s succeeds across pipe), `TestSupervisorRejectsUntrustedExtendedWallTime`, `TestSupervisorRejectsTrustedGenericEvaluate` (evaluate+Trusted rejected), `TestSupervisorRejectsSpoofedTrustedWallTimeMS` (forged grant stripped), `TestSupervisorRejectsTrustedNonJSCCall` (non-jsc call rejected), `TestRepresentativeWorkloadUnderOldLimit` (55 s > 30 s structural proof), `TestSingleflightCoalescesPreprocessing`, `TestSingleflightCanceledLeaderDoesNotFailLiveFollower`, `TestSingleflightAllWaitersCancelCancelsPreprocessing`, `TestSingleflightCanceledLeaderNoFollowersReturnsPromptly`, `TestSingleflightOneFollowerCancelsOtherRemains`, `TestSingleflightFollowerCancellation`, `TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves` (slow JS active during Close, process terminated), `TestLargeGeneratedPlayerWorkload` (~150 KB), `TestClientConcurrentRunAndClose` | Passing |
+| Automated proof | `TestSupervisorTrustedWallTimeCrossesProcessBoundary` (EJS call with 45 s succeeds across pipe), `TestSupervisorRejectsUntrustedExtendedWallTime`, `TestSupervisorRejectsTrustedGenericEvaluate` (evaluate+Trusted rejected), `TestSupervisorRejectsSpoofedTrustedWallTimeMS` (forged grant stripped), `TestSupervisorRejectsTrustedNonJSCCall` (non-jsc call rejected), `TestRepresentativeWorkloadUnderOldLimit` (55 s > 30 s structural proof), `TestSingleflightCoalescesPreprocessing`, `TestSingleflightCanceledLeaderDoesNotFailLiveFollower`, `TestSingleflightAllWaitersCancelCancelsPreprocessing`, `TestSingleflightCanceledLeaderNoFollowersReturnsPromptly`, `TestSingleflightOneFollowerCancelsOtherRemains`, `TestSingleflightFollowerCancellation`, `TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves` (slow JS active during Close, process terminated), `TestLargeGeneratedPlayerWorkload` (~150 KB), `TestClientConcurrentRunAndClose`, `TestPersistentPlayerCacheDisabledByDefault`, `TestPersistentPlayerCacheReusesAcrossFreshSolvers`, `TestPersistentPlayerCacheSemanticFailureFallsBackToFreshPreprocess`, `TestPersistentPlayerCacheSemanticFailureDoesNotRetryCancellation`, `TestPersistentPlayerCacheExpiryCorruptionAndVersionFallback`, `TestPersistentPlayerCacheTightensExistingBoundOnOpen`, `TestPersistentPlayerCacheBoundedConcurrentAndPrivate`, `TestPersistentPlayerCacheRejectsUnsafeRootAndCancellationAndClears` | Passing |
 | Live validation | Protected-video canary extraction against live YouTube | Unavailable (service-dependent, non-authoritative) |
 | Remaining deviation | No sanitized real 1-2 MB player fixture committed (proprietary); generated ~150 KB workload exercises meriyah parse path but does not empirically reproduce the original 30 s timeout; the fix is proven structurally via protocol validation gating and end-to-end supervisor tests | Documented |
 

@@ -76,6 +76,30 @@ Call `client.Close()` when the client is no longer needed to release the
 helper process and associated resources. A shared event handler must provide
 its own synchronization.
 
+### Optional persistent EJS preprocessing cache
+
+By default, EJS-generated player transforms remain only in the client's bounded
+memory cache. An embedding application may explicitly select a private,
+caller-owned directory to reuse only generated transforms across fresh clients:
+
+    client := ytdlp.NewClient(ytdlp.WithEJSPreprocessedPlayerCache(
+        ytdlp.EJSPreprocessedPlayerCacheOptions{Directory: appCacheDir},
+    ))
+
+The cache is separate from `Request.CacheDir` and has no caller media/cache URL
+state. It uses opaque SHA-256 source/solver/schema keys, private permissions,
+integrity checks, atomic replacement, a seven-day TTL, and a deterministic
+maximum of eight entries (TTL is configurable and the entry bound may be
+reduced). The artifact is generated from the publicly downloadable player AST
+and can retain public player-derived code and literals, including public URL
+strings. Per the approved privacy decision, it never stores caller page, media,
+or request URLs; cookies; authentication data; headers; runtime challenges;
+signatures; solve inputs/results; or other user secrets. Missing, expired,
+corrupt, or unsafe entries become cache misses. An unsafe configured root is
+rejected when the EJS solver starts. Call
+`client.ClearEJSPreprocessedPlayerCache(ctx)` to remove only this EJS namespace
+without touching compatibility or media caches.
+
 ## Error handling
 
     if ytdlp.IsCategory(err, ytdlp.ErrorAuthentication) {

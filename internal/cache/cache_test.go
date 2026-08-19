@@ -135,6 +135,41 @@ func TestCacheBoundsNamespaceBytesAndEntryCount(t *testing.T) {
 	}
 }
 
+func TestCachePruneOldestIsDeterministicAndBounded(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "cache"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"a", "b", "c"} {
+		if err := store.Store(context.Background(), "test", key, []byte(key), 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	directory, err := store.namespacePath("test", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Equal timestamps are ordered by filename, avoiding filesystem iteration
+	// order as an eviction input.
+	old := time.Unix(1_700_000_000, 0)
+	for _, key := range []string{"a", "b"} {
+		if err := os.Chtimes(filepath.Join(directory, key+".cache"), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.PruneOldest(context.Background(), "test", 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(directory, "a.cache")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("oldest entry remains: %v", err)
+	}
+	for _, key := range []string{"b", "c"} {
+		if _, err := os.Lstat(filepath.Join(directory, key+".cache")); err != nil {
+			t.Fatalf("retained entry %q = %v", key, err)
+		}
+	}
+}
+
 func TestCacheRejectsTraversalAndSymlinks(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cache")
 	store, err := Open(root, Options{})
@@ -373,6 +408,16 @@ func TestCacheMidWriteCancellationLeavesPriorValue(t *testing.T) {
 	value, hit, err := store.Lookup(context.Background(), "test", "key")
 	if err != nil || !hit || string(value) != "prior" {
 		t.Fatalf("prior value = %q, %v, %v", value, hit, err)
+	}
+}
+
+func TestRemoveNamespaceRootDoesNotCreateMissingRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache")
+	if err := RemoveNamespaceRoot(context.Background(), root, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("clear created missing root: %v", err)
 	}
 }
 

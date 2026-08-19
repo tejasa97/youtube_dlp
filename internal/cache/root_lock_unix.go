@@ -13,7 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func lockCacheRoot(ctx context.Context, root string) (*os.File, error) {
+func lockCacheRoot(ctx context.Context, root string) (*cacheRootLock, error) {
 	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) {
@@ -22,7 +22,8 @@ func lockCacheRoot(ctx context.Context, root string) (*os.File, error) {
 		return nil, err
 	}
 	file := os.NewFile(uintptr(fd), root)
-	closeWithError := func(lockErr error) (*os.File, error) {
+	lock := &cacheRootLock{file: file}
+	closeWithError := func(lockErr error) (*cacheRootLock, error) {
 		_ = file.Close()
 		return nil, lockErr
 	}
@@ -72,21 +73,22 @@ func lockCacheRoot(ctx context.Context, root string) (*os.File, error) {
 	if pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.IsDir() || !os.SameFile(locked, pathInfo) {
 		return closeWithError(ErrUnsafePath)
 	}
-	return file, nil
+	return lock, nil
 }
 
-func unlockCacheRoot(file *os.File) {
-	if file == nil {
+func unlockCacheRoot(lock *cacheRootLock) {
+	if lock == nil || lock.file == nil {
 		return
 	}
-	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-	_ = file.Close()
+	_ = unix.Flock(int(lock.file.Fd()), unix.LOCK_UN)
+	_ = lock.file.Close()
 }
 
-func removeRootLocked(ctx context.Context, root string, rootFile *os.File) error {
-	if rootFile == nil {
+func removeRootLocked(ctx context.Context, root string, lock *cacheRootLock) error {
+	if lock == nil || lock.file == nil {
 		return fmt.Errorf("%w: missing cache root lock", ErrIO)
 	}
+	rootFile := lock.file
 	if err := validateRootEntries(ctx, rootFile); err != nil {
 		return err
 	}
