@@ -3,7 +3,8 @@
 Pinned reference: yt-dlp `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 (`yt_dlp/extractor/youtube/_base.py:INNERTUBE_CLIENTS`,
 `_video.py:_DEFAULT_CLIENTS` / `_DEFAULT_AUTHED_CLIENTS` /
-`_DEFAULT_PREMIUM_CLIENTS`).
+`_DEFAULT_PREMIUM_CLIENTS`). Client identities were updated for upstream
+maintenance `69ea20006` (VISIONOS-first logged-out recovery).
 
 SABR references in this document describe isolation invariants for the retained
 experimental implementation. They do not make SABR a parity target or supported product capability.
@@ -12,11 +13,17 @@ experimental implementation. They do not make SABR a parity target or supported 
 
 Anonymous format recovery (cookie-isolated POST, deterministic order;
 current upstream logged-out direct client first, then the historical
-android/ios/mweb recovery clients already pinned in this port). Direct
-(non-EJS) formats from an earlier client win before JavaScript-challenge
-clients. YouTube selectively enforces GVS PO tokens on Android VR; unbound
-adaptive URLs from that client 403 immediately, so they are omitted unless a
-token is available.
+android/ios/mweb recovery clients already pinned in this port). YouTube
+selectively enforces GVS PO tokens on Android VR; unbound adaptive URLs from
+that client 403 immediately, so they are omitted unless a token is available.
+
+When the logged-out webpage WEB player already has formats that require the
+JavaScript challenge, recovery keeps only challenge-free formats from these
+clients (`recoverYouTubeDirectFormats`) instead of invoking the helper.
+Logged-out made-for-kids pages that return `UNPLAYABLE` or `ERROR` from
+`visionos` or `android_vr` append a single `tv_downgraded` retry when
+JavaScript support is present. That fallback is not part of authenticated
+recovery.
 
 1. `visionos` — VISIONOS / 101 / 1.02 (RealityDevice17,1 / visionOS 26.5.23O471)
 2. `android` — ANDROID / 3 / 21.26.364
@@ -41,8 +48,6 @@ cross-player format/SABR merge):
      (`desktopLegacyAgeGateReason` or status/reason markers matching
      yt-dlp `_is_agegated`). Ordinary authenticated no-format /
      `LOGIN_REQUIRED` responses do **not** add `web_creator`.
-   - Made-for-kids failures append a bounded `tv_downgraded` fallback when
-     JavaScript support is present.
 3. Exact pinned identities:
    - `tv_downgraded` — TVHTML5 / 7 / 5.20260707 (anonymous fallback and
      SID-bound authenticated recovery)
@@ -81,7 +86,7 @@ URLs that immediately return HTTP 403.
 ## Isolation / rejection
 
 - No cookie copying across incompatible profiles
-- Authenticated path never falls back to anonymous Android/iOS/mweb
+- Authenticated path never falls back to anonymous recovery clients
 - SABR inventories stay first-successful-candidate (no cross-player merge);
   selected-client SABR metadata binds that client's name/id/version/UA
 - Client attempts capped at `MaxYouTubeClientAttempts` (8)

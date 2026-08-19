@@ -56,20 +56,24 @@ The failure is not necessarily caused by the selected resolution or the queue.
 
 ## YouTube media returns HTTP 403
 
-Adaptive googlevideo 403s are often request-rate limits or expired signed URLs,
-not a missing JavaScript helper. Current builds refresh the source, rotate off
-rejected URL/client pairs, and resume only when the refreshed server accepts
-the saved range.
+A googlevideo HTTP 403 is not a missing JavaScript helper by default. Two
+finite-download cases are distinct:
 
-Retry the operation once on the same revision. If it still fails:
+- Request-rate 403s on googlevideo HTTP are reduced by randomized ~10 MiB
+  ranges. Retry once on the same revision.
+- Expired or rejected signed URLs on finite, non-live, non-SABR googlevideo
+  HTTP re-extract the source, rotate off rejected URL/client pairs, and resume
+  only when the refreshed server accepts the saved range.
+
+Live-from-start, post-live, and SABR downloads do not use that signed-URL
+refresh callback. Challenge timeouts remain the helper path above.
+
+If a retry on the same revision still fails:
 
 1. Confirm `ytdlp-js-helper` is the version built from the same revision and
    sits beside the main executable, or is selected explicitly.
 2. Report the public video URL, revision, platform, and sanitized HTTP status.
    Do not include signed query parameters.
-
-Challenge timeouts remain the helper path above. Do not treat a 403 as “helper
-missing” by default.
 
 ## JavaScript helper is missing
 

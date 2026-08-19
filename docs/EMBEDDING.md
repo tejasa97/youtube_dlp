@@ -190,10 +190,12 @@ evidence](CLI_PRINT_OUTPUT_EVIDENCE.md).
 
 ## Pause and resume
 
-Finite direct, HLS VOD, and static DASH sessions can be inspected and discarded
-through `InspectResumeState` and `PrepareResumeDiscard`. FFmpeg processing
-workspaces are restart-safe. Live, dynamic DASH, YouTube live/post-live, SABR,
-and UMP stay outside this contract. See
+Session resume is opt-in through `Request.Filesystem.Resume` (`SessionID`, a
+process-local `PublicationArbiter`, and `CommitTargets`). Finite direct
+HTTP(S), HLS VOD, and static DASH can continue that session; FFmpeg processing
+workspaces are restart-safe. `InspectResumeState` reads a session without
+changing it; `PrepareResumeDiscard` discards it. Live, dynamic DASH, YouTube
+live/post-live, SABR, and UMP stay outside this contract. See
 [Engine E5 hardening evidence](ENGINE_E5_HARDENING.md).
 
 ## Updater
