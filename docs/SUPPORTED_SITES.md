@@ -304,11 +304,20 @@ The following YouTube functionality is supported:
   retries, pinned duplicate handling, and explicit
   total/parent/reply/per-thread/depth limits;
 - adaptive video and audio formats recovered from the WEB player response and
-  bounded anonymous Innertube clients (`android`, `android_vr`, `web_safari`,
-  `ios`, `mweb`) plus authenticated `tv_downgraded` / `web_safari`
-  defaults and premium `tv_downgraded` / `web_creator` (non-Premium
-  `web_creator` only when age-gated; Premium changes GVS PO-token
-  requirements only);
+  bounded anonymous Innertube clients in this order: `visionos`, `android`,
+  `android_vr`, `web_safari`, `ios`, `mweb`. Direct (non-EJS) formats from an
+  earlier client win before JavaScript-challenge clients. `android_vr`
+  adaptive formats are omitted unless a GVS PO token is available;
+- authenticated Innertube recovery after the webpage WEB player uses
+  `tv_downgraded` then `web`; Premium uses `tv_downgraded`, `web_creator`,
+  then `web`; non-Premium `web_creator` only when age-gated; Premium changes
+  GVS PO-token requirements only. Made-for-kids failures get a bounded
+  `tv_downgraded` fallback when JavaScript support is present;
+- adaptive Google Video transfers use upstream-compatible randomized 10 MiB
+  HTTP ranges. Ordinary direct media that returns HTTP 403 is re-extracted,
+  matched to the same representation, rotated off rejected URL/client pairs,
+  and resumed only when the refreshed server accepts the saved range. Live
+  and post-live adaptive head probes use `HEAD`;
 - bounded finite reconstruction of retained post-live adaptive audio/video
   sequences, followed by the normal ffmpeg merge path; and
 - opt-in bounded active `--live-from-start` reconstruction with signed-URL
@@ -340,7 +349,7 @@ The following limitations are intentional and remain:
   process-restart resume;
 - authenticated Innertube coverage is bounded: a logged-in watch page can
   recover URL-bearing formats through the webpage WEB player and then
-  `tv_downgraded` / authenticated `web_safari` (exact `www.youtube.com`
+  `tv_downgraded` / authenticated `web` (exact `www.youtube.com`
   origin + SID; no anonymous downgrade; first successful candidate wins),
   with `web_creator` on Premium defaults or when age-gated playability is
   attributable (`web_creator` GVS tokens required unless Premium). Opt-in

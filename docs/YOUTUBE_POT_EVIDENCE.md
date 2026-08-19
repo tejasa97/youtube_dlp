@@ -21,6 +21,10 @@ path component. Provider failures and panics are reduced to categorized errors,
 and request/response formatting redacts their contents. Context cancellation is
 propagated when a provider returns it.
 
+Anonymous `android_vr` recovery requires a GVS PO token for adaptive formats.
+Missing or rejected tokens drop those formats instead of advertising URLs that
+immediately return HTTP 403.
+
 ## Explicit deviations
 
 - There is no built-in WebPO generator, implicit network endpoint, executable,

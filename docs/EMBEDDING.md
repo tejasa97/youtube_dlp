@@ -92,6 +92,10 @@ Public categories are unsupported, authentication, invalid_input, network,
 security, cancelled, and internal. Messages are diagnostic and may change;
 category values are the compatibility boundary.
 
+Download-phase HTTP failures, including an expired signed URL's 403, are
+`DownloadHTTPStatusError`. Use `errors.As` or `DownloadHTTPStatusCode`.
+Extractor `HTTPStatusError` values are a different type.
+
 ## Request and result model
 
 Request exposes output confinement, proxy, impersonation, cookie, and native
@@ -183,6 +187,14 @@ choose where and when to display them. Set `PrintRule.FileTemplate` to append
 the rendered line to a confined output-template path; produced files are
 reported as `print` artifacts. See [staged print-output
 evidence](CLI_PRINT_OUTPUT_EVIDENCE.md).
+
+## Pause and resume
+
+Finite direct, HLS VOD, and static DASH sessions can be inspected and discarded
+through `InspectResumeState` and `PrepareResumeDiscard`. FFmpeg processing
+workspaces are restart-safe. Live, dynamic DASH, YouTube live/post-live, SABR,
+and UMP stay outside this contract. See
+[Engine E5 hardening evidence](ENGINE_E5_HARDENING.md).
 
 ## Updater
 
