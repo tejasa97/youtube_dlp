@@ -15,7 +15,8 @@ Anonymous format recovery (cookie-isolated POST, deterministic order;
 current upstream logged-out direct client first, then the historical
 android/ios/mweb recovery clients already pinned in this port). YouTube
 selectively enforces GVS PO tokens on Android VR; unbound adaptive URLs from
-that client 403 immediately, so they are omitted unless a token is available.
+that client 403 immediately, so they are omitted unless a GVS token is
+available or a player token has already waived that requirement.
 
 When the logged-out webpage WEB player already has formats that require the
 JavaScript challenge, recovery keeps only challenge-free formats from these
@@ -59,16 +60,19 @@ cross-player format/SABR merge):
 ### GVS PO-token policy
 
 Pinned `_base.py`: `web_creator` and WEB-family GVS policies set
-`required=True` with `not_required_for_premium=True`. Premium only changes
-whether a GVS PO token is required — it does not gate client eligibility.
-Authenticated recovery enforces that policy fail-closed: when a GVS token is
-required and missing/rejected, that candidate is discarded with an explicit
-`GVS PO token required for <client>` error (formats are not silently stripped
-to itag-18 on the auth path).
+`required=True` with `not_required_for_premium=True`. That GVS policy does
+not decide which clients are tried: Premium still adds `web_creator` to the
+authenticated default list, and non-Premium adds it only for an attributable
+age gate. Premium only changes whether a GVS PO token is required for those
+WEB-family candidates. Authenticated recovery enforces the policy fail-closed:
+when a GVS token is required and missing/rejected, that candidate is discarded
+with an explicit `GVS PO token required for <client>` error (formats are not
+silently stripped to itag-18 on the auth path).
 
-Anonymous `android_vr` recovery also requires a GVS PO token for adaptive
-formats. Missing or rejected tokens drop those formats instead of advertising
-URLs that immediately return HTTP 403.
+Anonymous `android_vr` recovery requires a GVS PO token for adaptive formats
+unless a player token has already waived that requirement
+(`NotRequiredWithPlayerToken`). Missing or rejected required tokens drop those
+formats instead of advertising URLs that immediately return HTTP 403.
 
 ### Origin / API host / SID
 

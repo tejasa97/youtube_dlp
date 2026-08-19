@@ -309,13 +309,13 @@ The following YouTube functionality is supported:
   player includes challenge-required formats, recovery prefers
   challenge-free formats from those clients before invoking the JavaScript
   helper. `android_vr` adaptive formats are omitted unless a GVS PO token is
-  available. Logged-out made-for-kids pages that fail on `visionos` or
+  available or a player token has already waived that GVS requirement.
+  Logged-out made-for-kids pages that fail on `visionos` or
   `android_vr` with `UNPLAYABLE`/`ERROR` get a bounded `tv_downgraded` retry
   when JavaScript support is present;
 - authenticated Innertube recovery after the webpage WEB player uses
   `tv_downgraded` then `web`; Premium uses `tv_downgraded`, `web_creator`,
-  then `web`; non-Premium `web_creator` only when age-gated; Premium changes
-  GVS PO-token requirements only;
+  then `web`; non-Premium `web_creator` only when age-gated;
 - finite googlevideo HTTP downloads (muxed or adaptive) use upstream-compatible
   randomized 10 MiB ranges. A media HTTP 403 on those finite, non-live,
   non-SABR URLs re-extracts the source, matches the same representation,
