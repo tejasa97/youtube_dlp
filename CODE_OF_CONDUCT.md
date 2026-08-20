@@ -47,7 +47,7 @@ materially affect participation in the project.
 
 Do not litigate a sensitive conduct report in a public issue. Submit a private
 report through the repository's
-[private reporting form](https://github.com/tejasa97/youtube_dlp/security/advisories/new)
+[private reporting form](https://github.com/tejasa97/ytdlp-go/security/advisories/new)
 and begin the title with `[conduct]`.
 
 Include the relevant links, dates, participants, and a concise description of

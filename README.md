@@ -75,8 +75,8 @@ The following commands use a Unix-like shell. Windows source-build commands
 are documented under [Installation](docs/INSTALLATION.md#cli-source-build).
 
 ```sh
-git clone https://github.com/tejasa97/youtube_dlp.git
-cd youtube_dlp
+git clone https://github.com/tejasa97/ytdlp-go.git
+cd ytdlp-go
 mkdir -p bin
 
 CGO_ENABLED=0 go build -trimpath -o bin/ytdlp-go ./cmd/ytdlp-go

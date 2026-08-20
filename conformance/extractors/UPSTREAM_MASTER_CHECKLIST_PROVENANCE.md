@@ -6,7 +6,7 @@
 - Commit: `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 - Registry: `yt_dlp/extractor/_extractors.py`
 - Extractor sources: `yt_dlp/extractor/*.py` and registered extractor packages
-- Go comparison base: `tejasa97/youtube_dlp@ca10f693318c4f9084f87a1f65dae409bf63334a`
+- Go comparison base: `tejasa97/ytdlp-go@ca10f693318c4f9084f87a1f65dae409bf63334a`
 
 The reference checkout was read-only. No upstream file was modified, copied as
 production code, or executed.

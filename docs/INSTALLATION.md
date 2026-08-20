@@ -12,8 +12,11 @@ built binaries as endorsed releases.
 | `ytdlp-go` CLI | Terminal and automation workflows | Source build |
 | `pkg/ytdlp` | Embedding in another Go application | Canonical Go module dependency |
 
-The repository and Go module share the canonical path
-`github.com/tejasa97/youtube_dlp`. Add the embeddable package with:
+The GitHub repository is
+[`github.com/tejasa97/ytdlp-go`](https://github.com/tejasa97/ytdlp-go).
+The Go module path remains `github.com/tejasa97/youtube_dlp` until a later
+migration; `go get github.com/tejasa97/ytdlp-go` will not resolve until then.
+Add the embeddable package with:
 
 ```sh
 go get github.com/tejasa97/youtube_dlp/pkg/ytdlp
@@ -33,8 +36,8 @@ The API is pre-release, so review dependency upgrades before adopting them.
 Clone and build the CLI and JavaScript helper:
 
 ```sh
-git clone https://github.com/tejasa97/youtube_dlp.git
-cd youtube_dlp
+git clone https://github.com/tejasa97/ytdlp-go.git
+cd ytdlp-go
 mkdir -p bin
 
 CGO_ENABLED=0 go build -trimpath -o bin/ytdlp-go ./cmd/ytdlp-go
