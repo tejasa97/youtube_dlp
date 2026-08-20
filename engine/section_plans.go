@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/compat/sections"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/compat/sections"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 // sectionPlan pairs an expanded output plan with its normalized section

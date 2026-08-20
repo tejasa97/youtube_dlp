@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/engine"
-	"github.com/tejasa97/youtube_dlp/engine/value"
+	"github.com/tejasa97/ytdlp-go/engine"
+	"github.com/tejasa97/ytdlp-go/engine/value"
 )
 
 // ProviderHooks intentionally retains its original unkeyed-composite layout.

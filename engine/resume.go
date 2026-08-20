@@ -11,7 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tejasa97/youtube_dlp/internal/session"
+	"github.com/tejasa97/ytdlp-go/internal/session"
 )
 
 var ErrPauseRequested = errors.New("engine: pause requested")

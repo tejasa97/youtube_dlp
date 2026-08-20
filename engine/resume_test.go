@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/engine/value"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/session"
+	"github.com/tejasa97/ytdlp-go/engine/value"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/session"
 )
 
 const testResumeSessionID = "0123456789abcdef0123456789abcdef"

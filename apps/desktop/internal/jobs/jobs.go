@@ -20,8 +20,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tejasa97/youtube_dlp/engine"
-	provideryoutube "github.com/tejasa97/youtube_dlp/providers/youtube"
+	"github.com/tejasa97/ytdlp-go/engine"
+	provideryoutube "github.com/tejasa97/ytdlp-go/providers/youtube"
 )
 
 // Quality is the user-visible quality preset. The string values are

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/network"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/network"
 )
 
 const (

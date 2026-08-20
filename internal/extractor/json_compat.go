@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/tejasa97/youtube_dlp/internal/extraction"
+	"github.com/tejasa97/ytdlp-go/internal/extraction"
 )
 
 const maxExtractorJSONBytes = 16 << 20

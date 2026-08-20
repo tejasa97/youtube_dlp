@@ -8,7 +8,7 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
+	"github.com/tejasa97/ytdlp-go/internal/atomicfile"
 	"golang.org/x/sys/windows"
 )
 

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+	"github.com/tejasa97/ytdlp-go/pkg/pluginapi"
 )
 
 var (

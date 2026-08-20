@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
-	"github.com/tejasa97/youtube_dlp/internal/testserver"
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/testserver"
+	"github.com/tejasa97/ytdlp-go/pkg/ytdlp"
 )
 
 func TestRunVersion(t *testing.T) {

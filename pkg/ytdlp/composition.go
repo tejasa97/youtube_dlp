@@ -6,12 +6,12 @@ import (
 	"io"
 	"net/url"
 
-	"github.com/tejasa97/youtube_dlp/engine"
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/supervisor"
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/ytdlp-go/engine"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/ejs"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/supervisor"
+	"github.com/tejasa97/ytdlp-go/internal/youtubepot"
 )
 
 // broadCompatibilityComposition is the sole owner of the complete first-party

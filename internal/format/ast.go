@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 // astKind identifies selector AST node operators.

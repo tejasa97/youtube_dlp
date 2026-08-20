@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/tejasa97/youtube_dlp/internal/compat/sections"
+	"github.com/tejasa97/ytdlp-go/internal/compat/sections"
 )
 
 var errInvalidRequestOptions = errors.New("invalid request options")

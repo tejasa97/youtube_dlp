@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
 )
 
 const nTrackWorkspaceManifestVersion = 1

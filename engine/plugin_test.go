@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/enginetest"
-	"github.com/tejasa97/youtube_dlp/internal/pack"
-	"github.com/tejasa97/youtube_dlp/internal/plugin"
-	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/enginetest"
+	"github.com/tejasa97/ytdlp-go/internal/pack"
+	"github.com/tejasa97/ytdlp-go/internal/plugin"
+	"github.com/tejasa97/ytdlp-go/pkg/pluginapi"
 )
 
 func TestSignedWASMPluginPackHostAndProductIntegration(t *testing.T) {

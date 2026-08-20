@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/ytdlp-go/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/youtubepot"
 )
 
 func TestYouTubeExtractsManualAutomaticTranslatedAndProtectedCaptions(t *testing.T) {

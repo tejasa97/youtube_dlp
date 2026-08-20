@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/pack"
+	"github.com/tejasa97/ytdlp-go/internal/pack"
 )
 
 func catalogKey() ed25519.PrivateKey {

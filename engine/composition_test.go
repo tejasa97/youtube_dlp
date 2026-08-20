@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/enginetest"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/enginetest"
 )
 
 func focusedTestComposition(catalogCalls, providerCalls *atomic.Int32) Composition {

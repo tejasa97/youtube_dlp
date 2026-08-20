@@ -20,10 +20,10 @@ import (
 	"sync"
 	"time"
 
-	compatconfig "github.com/tejasa97/youtube_dlp/internal/compat/config"
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
-	"github.com/tejasa97/youtube_dlp/internal/sponsorblock"
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	compatconfig "github.com/tejasa97/ytdlp-go/internal/compat/config"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
+	"github.com/tejasa97/ytdlp-go/internal/sponsorblock"
+	"github.com/tejasa97/ytdlp-go/pkg/ytdlp"
 )
 
 // Version is overridden with -X for release artifacts.

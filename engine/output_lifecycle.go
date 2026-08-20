@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/compat/sections"
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/compat/sections"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 // errLifecycleInternal is the wrapped sentinel that lets callers detect

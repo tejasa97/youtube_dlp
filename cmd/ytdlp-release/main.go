@@ -16,12 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/release"
+	"github.com/tejasa97/ytdlp-go/internal/release"
 )
 
 const apiVersion = "ytdlp-release/v1alpha1"
 
-const expectedMainPackage = "github.com/tejasa97/youtube_dlp/cmd/ytdlp-go"
+const expectedMainPackage = "github.com/tejasa97/ytdlp-go/cmd/ytdlp-go"
 
 type stringsFlag []string
 
@@ -139,8 +139,8 @@ func run(ctx context.Context, args []string) error {
 }
 
 func appendProjectLicense(components []release.Component, licenses []release.License, version string, body []byte) ([]release.Component, []release.License) {
-	components = append(components, release.Component{Name: "github.com/tejasa97/youtube_dlp", Version: version, SPDXID: "SPDXRef-ytdlp-go", LicenseDeclared: "Apache-2.0", Download: "NOASSERTION"})
-	licenses = append(licenses, release.License{Component: "github.com/tejasa97/youtube_dlp", Version: version, SPDX: "Apache-2.0", Text: body})
+	components = append(components, release.Component{Name: "github.com/tejasa97/ytdlp-go", Version: version, SPDXID: "SPDXRef-ytdlp-go", LicenseDeclared: "Apache-2.0", Download: "NOASSERTION"})
+	licenses = append(licenses, release.License{Component: "github.com/tejasa97/ytdlp-go", Version: version, SPDX: "Apache-2.0", Text: body})
 	return components, licenses
 }
 

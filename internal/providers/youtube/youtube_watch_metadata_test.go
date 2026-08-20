@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 const youtubeWatchFixtureURL = "https://www.youtube.com/watch?v=fixture0004"

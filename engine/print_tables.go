@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	outputtemplate "github.com/tejasa97/ytdlp-go/internal/compat/template"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 const (

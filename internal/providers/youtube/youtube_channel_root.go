@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 const youtubeMaxBareChannelTabs = 128

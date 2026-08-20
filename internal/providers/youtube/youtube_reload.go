@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/ytdlp-go/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/youtubepot"
 )
 
 // Bound matches LuanRT/googlevideo MaxReloadTokenBytes used by youtubeump.

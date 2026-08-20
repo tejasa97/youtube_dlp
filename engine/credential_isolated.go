@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/network"
 )
 
 // credentialIsolatedTransport delegates to DoWithoutCredentialsNoRedirect after

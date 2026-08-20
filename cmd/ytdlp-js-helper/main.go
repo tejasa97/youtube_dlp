@@ -12,8 +12,8 @@ import (
 	"runtime/debug"
 	"strconv"
 
-	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/engine"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/protocol"
 )
 
 const memoryLimitEnvironment = "YTDLP_JS_MEMORY_BYTES"

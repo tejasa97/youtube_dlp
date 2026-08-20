@@ -1,26 +1,28 @@
 # Embedding ytdlp-go
 
-The supported Go package contract is `github.com/tejasa97/youtube_dlp/pkg/ytdlp`.
+The supported Go package contract is `github.com/tejasa97/ytdlp-go/pkg/ytdlp`.
 The current contract version is v1alpha1. It is context-aware, safe for
 concurrent independent operations, and returns categorized errors rather than
 requiring callers to inspect diagnostic text.
 
 ## Module availability
 
-The GitHub repository is
+The GitHub repository and Go module path are both
 [`github.com/tejasa97/ytdlp-go`](https://github.com/tejasa97/ytdlp-go).
-The Go module path remains `github.com/tejasa97/youtube_dlp` until a later
-migration; `go get github.com/tejasa97/ytdlp-go` will not resolve until then.
 Add the supported package with:
 
-    go get github.com/tejasa97/youtube_dlp/pkg/ytdlp
+    go get github.com/tejasa97/ytdlp-go/pkg/ytdlp
+
+Tagged `v0.2.x` releases remain available as `github.com/tejasa97/youtube_dlp`.
+New versions use the `ytdlp-go` module path; update `go.mod` and imports
+accordingly.
 
 To compile against a specific local checkout instead, declare the canonical
 module and replace it locally:
 
-    require github.com/tejasa97/youtube_dlp v0.0.0
+    require github.com/tejasa97/ytdlp-go v0.0.0
 
-    replace github.com/tejasa97/youtube_dlp => /absolute/path/to/ytdlp-go
+    replace github.com/tejasa97/ytdlp-go => /absolute/path/to/ytdlp-go
 
 The replacement is for local development only and should not be published by
 downstream modules.
@@ -34,7 +36,7 @@ downstream modules.
         "fmt"
         "log"
 
-        "github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+        "github.com/tejasa97/ytdlp-go/pkg/ytdlp"
     )
 
     func main() {

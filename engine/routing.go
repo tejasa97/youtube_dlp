@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
 )
 
 const (

@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/archive"
-	platformxattrs "github.com/tejasa97/youtube_dlp/internal/platform/xattrs"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/archive"
+	platformxattrs "github.com/tejasa97/ytdlp-go/internal/platform/xattrs"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func TestProductXattrsWritesBoundedMetadataMapping(t *testing.T) {

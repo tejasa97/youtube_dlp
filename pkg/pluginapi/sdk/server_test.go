@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+	"github.com/tejasa97/ytdlp-go/pkg/pluginapi"
 )
 
 type extractorFunc func(context.Context, pluginapi.ExtractRequest) (pluginapi.ExtractResponse, error)

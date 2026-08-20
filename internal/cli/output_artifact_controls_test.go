@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/ytdlp-go/pkg/ytdlp"
 )
 
 func TestOutputArtifactFlagsAndIDOrdering(t *testing.T) {

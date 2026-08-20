@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/engine/value"
+	"github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/engine/value"
 )
 
 type (

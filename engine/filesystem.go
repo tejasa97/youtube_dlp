@@ -9,11 +9,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
-	"github.com/tejasa97/youtube_dlp/internal/downloader"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	outputtemplate "github.com/tejasa97/ytdlp-go/internal/compat/template"
+	"github.com/tejasa97/ytdlp-go/internal/downloader"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 const (

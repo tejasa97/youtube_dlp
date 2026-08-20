@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/downloader"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/hls"
+	"github.com/tejasa97/ytdlp-go/internal/downloader"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/hls"
 )
 
 const (

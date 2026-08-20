@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	internalupdate "github.com/tejasa97/youtube_dlp/internal/update"
+	internalupdate "github.com/tejasa97/ytdlp-go/internal/update"
 )
 
 func TestPublicUpdaterApplyAndRollback(t *testing.T) {

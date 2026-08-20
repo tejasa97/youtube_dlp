@@ -7,8 +7,8 @@ import (
 	"net"
 	"time"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/network"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/network"
 )
 
 type extractorRetryWaitFunc func(context.Context, time.Duration) error

@@ -12,19 +12,19 @@ func TestProviderConsumersExcludeRootEngineCycle(t *testing.T) {
 		prohibited  []string
 	}{
 		{
-			packagePath: "github.com/tejasa97/youtube_dlp/internal/javascript/ejs",
-			prohibited:  []string{"github.com/tejasa97/youtube_dlp/engine"},
+			packagePath: "github.com/tejasa97/ytdlp-go/internal/javascript/ejs",
+			prohibited:  []string{"github.com/tejasa97/ytdlp-go/engine"},
 		},
 		{
-			packagePath: "github.com/tejasa97/youtube_dlp/internal/youtubepot",
-			prohibited:  []string{"github.com/tejasa97/youtube_dlp/engine"},
+			packagePath: "github.com/tejasa97/ytdlp-go/internal/youtubepot",
+			prohibited:  []string{"github.com/tejasa97/ytdlp-go/engine"},
 		},
 		{
-			packagePath: "github.com/tejasa97/youtube_dlp/internal/providers/youtube",
+			packagePath: "github.com/tejasa97/ytdlp-go/internal/providers/youtube",
 			prohibited: []string{
-				"github.com/tejasa97/youtube_dlp/engine",
-				"github.com/tejasa97/youtube_dlp/internal/extraction",
-				"github.com/tejasa97/youtube_dlp/internal/extractor",
+				"github.com/tejasa97/ytdlp-go/engine",
+				"github.com/tejasa97/ytdlp-go/internal/extraction",
+				"github.com/tejasa97/ytdlp-go/internal/extractor",
 			},
 		},
 	}

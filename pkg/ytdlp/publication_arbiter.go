@@ -1,6 +1,6 @@
 package ytdlp
 
-import "github.com/tejasa97/youtube_dlp/engine"
+import "github.com/tejasa97/ytdlp-go/engine"
 
 // AtomicCommitError is the facade alias for engine.AtomicCommitError.
 type AtomicCommitError = engine.AtomicCommitError

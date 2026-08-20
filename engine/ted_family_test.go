@@ -13,10 +13,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 type tedProductRoundTripper struct {

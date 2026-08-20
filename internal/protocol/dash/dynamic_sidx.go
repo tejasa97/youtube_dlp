@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/fragment"
+	"github.com/tejasa97/ytdlp-go/internal/fragment"
 )
 
 type representationProfile struct {

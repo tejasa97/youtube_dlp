@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/downloader"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/downloader"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func TestYouTubeDirectRefreshRotatesDistinctClients(t *testing.T) {

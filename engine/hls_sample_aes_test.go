@@ -11,12 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/fragment"
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/hls"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/fragment"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/hls"
 )
 
 func TestHLSDelegatesEligibleSampleAESToFFmpegFallback(t *testing.T) {

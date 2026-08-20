@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/engine"
-	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/ytdlp-go/engine"
+	"github.com/tejasa97/ytdlp-go/internal/atomicfile"
+	"github.com/tejasa97/ytdlp-go/pkg/ytdlp"
 )
 
 func TestCommitErrorStructurallyImplementsPublicContract(t *testing.T) {

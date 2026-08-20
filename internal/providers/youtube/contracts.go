@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 // Provider implementation aliases remain local to the complete YouTube

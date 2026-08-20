@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/network"
 )
 
 // microsoftProductRoundTripper intercepts every request the product

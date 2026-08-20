@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 var microsoftFixtureRoot = filepath.Join("..", "..", "conformance", "extractors", "risk", "microsoft")

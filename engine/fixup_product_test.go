@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
 )
 
 func TestProductTypedFixupSuccessAndWarnAreObservable(t *testing.T) {

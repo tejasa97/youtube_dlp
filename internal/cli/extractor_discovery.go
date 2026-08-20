@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/ytdlp-go/pkg/ytdlp"
 )
 
 func runExtractorDiscovery(ctx context.Context, listOnly bool, metadata []ytdlp.ExtractorMetadata, stdout, stderr io.Writer) int {

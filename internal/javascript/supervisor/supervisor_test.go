@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/protocol"
 )
 
 var (

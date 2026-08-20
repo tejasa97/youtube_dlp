@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/engine/value"
+	"github.com/tejasa97/ytdlp-go/engine/value"
 )
 
 type registryRequest struct{ rawURL string }

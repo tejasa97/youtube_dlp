@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/protocol"
 )
 
 type stubExecutor struct{}

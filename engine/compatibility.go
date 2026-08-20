@@ -7,16 +7,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/compat/chapterremove"
-	"github.com/tejasa97/youtube_dlp/internal/compat/matchfilter"
-	compatmetadata "github.com/tejasa97/youtube_dlp/internal/compat/metadata"
-	"github.com/tejasa97/youtube_dlp/internal/compat/progress"
-	"github.com/tejasa97/youtube_dlp/internal/compat/sections"
-	"github.com/tejasa97/youtube_dlp/internal/compat/simplefilter"
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/compat/chapterremove"
+	"github.com/tejasa97/ytdlp-go/internal/compat/matchfilter"
+	compatmetadata "github.com/tejasa97/ytdlp-go/internal/compat/metadata"
+	"github.com/tejasa97/ytdlp-go/internal/compat/progress"
+	"github.com/tejasa97/ytdlp-go/internal/compat/sections"
+	"github.com/tejasa97/ytdlp-go/internal/compat/simplefilter"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 type compatibilityPlan struct {

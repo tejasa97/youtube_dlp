@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
-	"github.com/tejasa97/youtube_dlp/internal/media/postprocess"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/media/postprocess"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func TestProductSplitChaptersPublishesConfinedArtifactsAndOneArchiveRecord(t *testing.T) {

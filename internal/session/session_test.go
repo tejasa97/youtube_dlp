@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
+	"github.com/tejasa97/ytdlp-go/internal/atomicfile"
 )
 
 var testNow = time.Date(2026, time.August, 11, 12, 0, 0, 0, time.UTC)

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
 )
 
 func testNTrackSelections(token string) []mediaformat.Selection {

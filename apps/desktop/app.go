@@ -14,11 +14,11 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/tejasa97/youtube_dlp/apps/desktop/internal/ffmpegdetect"
-	"github.com/tejasa97/youtube_dlp/apps/desktop/internal/jobs"
-	"github.com/tejasa97/youtube_dlp/apps/desktop/internal/store"
-	"github.com/tejasa97/youtube_dlp/apps/desktop/internal/urlcheck"
-	"github.com/tejasa97/youtube_dlp/engine"
+	"github.com/tejasa97/ytdlp-go/apps/desktop/internal/ffmpegdetect"
+	"github.com/tejasa97/ytdlp-go/apps/desktop/internal/jobs"
+	"github.com/tejasa97/ytdlp-go/apps/desktop/internal/store"
+	"github.com/tejasa97/ytdlp-go/apps/desktop/internal/urlcheck"
+	"github.com/tejasa97/ytdlp-go/engine"
 )
 
 // App is the Wails-bound root. Every exported method is reachable from

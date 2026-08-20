@@ -1,9 +1,9 @@
 package engine_test
 
 import (
-	"github.com/tejasa97/youtube_dlp/engine"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/ytdlp-go/engine"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/ejs"
+	"github.com/tejasa97/ytdlp-go/internal/youtubepot"
 )
 
 var (

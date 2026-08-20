@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/network"
 	"golang.org/x/sys/windows"
 )
 

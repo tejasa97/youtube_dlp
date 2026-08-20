@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/events"
+	"github.com/tejasa97/ytdlp-go/internal/events"
 )
 
 func TestPolicyCookieAppearsInNextRequest(t *testing.T) {

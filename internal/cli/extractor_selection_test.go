@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/testserver"
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/ytdlp-go/internal/testserver"
+	"github.com/tejasa97/ytdlp-go/pkg/ytdlp"
 )
 
 func TestRunExtractorSelectionFlagsPreservePinnedRuleOrderAndAliases(t *testing.T) {

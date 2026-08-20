@@ -16,11 +16,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/value"
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/ejs"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/engine"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/youtubepot"
 )
 
 const (

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/pack"
+	"github.com/tejasa97/ytdlp-go/internal/pack"
 )
 
 var fixtureSeed = [ed25519.SeedSize]byte{

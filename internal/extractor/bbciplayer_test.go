@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/dash"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/hls"
-	"github.com/tejasa97/youtube_dlp/internal/testserver"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/dash"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/hls"
+	"github.com/tejasa97/ytdlp-go/internal/testserver"
 )
 
 func TestBBCIPlayerRoutingEpisodeGeoFallbackAndFormats(t *testing.T) {

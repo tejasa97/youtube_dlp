@@ -13,7 +13,7 @@ func TestProviderDependencyClosureExcludesMixedExtractorPackage(t *testing.T) {
 		t.Fatalf("go list provider dependencies: %v\n%s", err, output)
 	}
 	for _, dependency := range strings.Fields(string(output)) {
-		if dependency == "github.com/tejasa97/youtube_dlp/internal/extractor" {
+		if dependency == "github.com/tejasa97/ytdlp-go/internal/extractor" {
 			t.Fatal("internal/providers/youtube depends on mixed internal/extractor")
 		}
 	}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/engine"
-	"github.com/tejasa97/youtube_dlp/internal/enginetest"
+	"github.com/tejasa97/ytdlp-go/engine"
+	"github.com/tejasa97/ytdlp-go/internal/enginetest"
 )
 
 func TestCycleFreeRootEngineTestHarness(t *testing.T) {

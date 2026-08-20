@@ -19,8 +19,10 @@ interface maturity.
 
 ### Changed
 
-- The public GitHub repository is now `tejasa97/ytdlp-go`. The Go module path
-  remains `github.com/tejasa97/youtube_dlp`.
+- The public GitHub repository is `tejasa97/ytdlp-go`. The Go module path is
+  now `github.com/tejasa97/ytdlp-go`. Downstream `go.mod` files and imports that
+  used `github.com/tejasa97/youtube_dlp` must be updated. Tagged `v0.2.x`
+  releases remain available under the previous module path.
 
 ### Fixed
 

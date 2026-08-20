@@ -5,10 +5,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/engine/provider"
-	enginevalue "github.com/tejasa97/youtube_dlp/engine/value"
-	"github.com/tejasa97/youtube_dlp/internal/extraction"
-	internalvalue "github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/engine/provider"
+	enginevalue "github.com/tejasa97/ytdlp-go/engine/value"
+	"github.com/tejasa97/ytdlp-go/internal/extraction"
+	internalvalue "github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func TestPublicContractAliasesPreserveIdentity(t *testing.T) {

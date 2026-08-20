@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/tejasa97/youtube_dlp/internal/extractor"
+import "github.com/tejasa97/ytdlp-go/internal/extractor"
 
 // broadCompatibilityProviders constructs the unchanged full provider catalog
 // for the CLI and pkg/ytdlp.NewClient facade. Plugins remain explicit-only and

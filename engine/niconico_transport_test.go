@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
 )
 
 var (
