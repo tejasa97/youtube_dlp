@@ -116,6 +116,11 @@ Public categories are unsupported, authentication, invalid_input, network,
 security, cancelled, and internal. Messages are diagnostic and may change;
 category values are the compatibility boundary.
 
+Download-phase HTTP failures on direct media downloads, including an expired
+signed URL's 403, are `DownloadHTTPStatusError`. Use `errors.As` or
+`DownloadHTTPStatusCode`. Extractor `HTTPStatusError` values and HLS/DASH
+fragment failures are different types.
+
 ## Request and result model
 
 Request exposes output confinement, proxy, impersonation, cookie, and native
@@ -207,6 +212,28 @@ choose where and when to display them. Set `PrintRule.FileTemplate` to append
 the rendered line to a confined output-template path; produced files are
 reported as `print` artifacts. See [staged print-output
 evidence](CLI_PRINT_OUTPUT_EVIDENCE.md).
+
+## Pause and resume
+
+Session resume is opt-in through `Request.Filesystem.Resume` (`SessionID`, a
+process-local `PublicationArbiter`, and `CommitTargets`). Finite direct
+HTTP(S), HLS VOD, and static DASH can continue that session; FFmpeg processing
+workspaces are restart-safe. Live, dynamic DASH, YouTube live/post-live, SABR,
+and UMP stay outside this contract.
+
+Pause by canceling with `context.WithCancelCause` and `ytdlp.ErrPauseRequested`
+while `Run` is in flight. Ordinary cancellation destroys resumable session
+state.
+
+    ctx, cancel := context.WithCancelCause(context.Background())
+    defer cancel(nil)
+    // From the pause path, not defer:
+    cancel(ytdlp.ErrPauseRequested)
+
+`InspectResumeState` reads a session without changing it.
+`PrepareResumeDiscard` returns a lease-holding handle: call `Discard` to
+remove the hidden workspace, or `Close` to leave the session intact. See
+[Engine E5 hardening evidence](ENGINE_E5_HARDENING.md).
 
 ## Updater
 
