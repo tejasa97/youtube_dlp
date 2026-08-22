@@ -26,6 +26,13 @@ func youtubeTestAnonymousProfile(t *testing.T, name string) youtubeClientProfile
 			return profile
 		}
 	}
+	// Non-default but still-defined profiles (retained for defensive coverage
+	// and explicit selection) are resolvable by name too.
+	for _, profile := range []youtubeClientProfile{youtubeAndroidVRClient, youtubeWebEmbeddedClient} {
+		if profile.Name == name {
+			return profile
+		}
+	}
 	t.Fatalf("missing anonymous client profile %q", name)
 	return youtubeClientProfile{}
 }
@@ -95,6 +102,12 @@ func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T
 	if youtubeWebCreatorClient.GVSPolicy.Required != true || !youtubeWebCreatorClient.GVSPolicy.NotRequiredForPremium {
 		t.Fatal("web_creator must require GVS with premium exception only")
 	}
+	if youtubeWebEmbeddedClient.Name != "web_embedded" || youtubeWebEmbeddedClient.ClientName != "WEB_EMBEDDED_PLAYER" ||
+		youtubeWebEmbeddedClient.ClientID != "56" || youtubeWebEmbeddedClient.ClientVersion != "2.20260708.00.00" ||
+		!youtubeWebEmbeddedClient.SupportsCookies || !youtubeWebEmbeddedClient.AllowAuth ||
+		youtubeWebEmbeddedClient.GVSPolicy.Required || youtubeWebEmbeddedClient.RequireAuth {
+		t.Fatalf("web_embedded must be the cookie-capable WEB_EMBEDDED_PLAYER client without a required GVS policy: %#v", youtubeWebEmbeddedClient)
+	}
 	visionOS := youtubeTestAnonymousProfile(t, "visionos")
 	if visionOS.ClientName != "VISIONOS" || visionOS.ClientID != "101" || visionOS.ClientVersion != "1.02" ||
 		visionOS.Context["userAgent"] != visionOS.UserAgent || visionOS.Context["deviceModel"] != "RealityDevice17,1" ||
@@ -108,8 +121,24 @@ func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T
 	}
 }
 
+func TestYouTubeAndroidVRExcludedFromDefaultRotation(t *testing.T) {
+	// Upstream dae52d83 (#17461): android_vr 403s all formats at 1.65.10 since
+	// 2026.08.17, so it is removed from the default anonymous rotation.
+	for _, profile := range youtubeAnonymousFormatRecoveryClients {
+		if profile.Name == "android_vr" || profile.ClientName == "ANDROID_VR" {
+			t.Fatal("android_vr must not appear in the default anonymous rotation")
+		}
+	}
+	// The profile is retained (fail-closed) for defensive coverage and any
+	// explicit, non-default selection.
+	if youtubeAndroidVRClient.ClientID != "28" || youtubeAndroidVRClient.ClientVersion != "1.65.10" ||
+		!youtubeAndroidVRClient.GVSPolicy.Required || !youtubeAndroidVRClient.GVSPolicy.NotRequiredWithPlayerToken {
+		t.Fatalf("retained android_vr profile must stay fail-closed: %#v", youtubeAndroidVRClient)
+	}
+}
+
 func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
-	wantAnon := []string{"visionos", "android", "android_vr", "web_safari", "ios", "mweb"}
+	wantAnon := []string{"visionos", "android", "web_safari", "ios", "mweb"}
 	if len(youtubeAnonymousFormatRecoveryClients) != len(wantAnon) {
 		t.Fatalf("anon len=%d", len(youtubeAnonymousFormatRecoveryClients))
 	}
@@ -118,7 +147,7 @@ func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
 			t.Fatalf("anon[%d]=%s want %s", i, youtubeAnonymousFormatRecoveryClients[i].Name, name)
 		}
 	}
-	wantAuth := []string{"tv_downgraded", "web"}
+	wantAuth := []string{"web_embedded", "tv_downgraded", "web"}
 	gotAuth := youtubeAuthenticatedFormatRecoveryClients(false, false)
 	if len(gotAuth) != len(wantAuth) {
 		t.Fatalf("auth len=%d", len(gotAuth))
@@ -128,7 +157,7 @@ func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
 			t.Fatalf("auth[%d]=%s want %s", i, gotAuth[i].Name, name)
 		}
 	}
-	wantAge := []string{"tv_downgraded", "web", "web_creator"}
+	wantAge := []string{"web_embedded", "tv_downgraded", "web", "web_creator"}
 	gotAge := youtubeAuthenticatedFormatRecoveryClients(false, true)
 	if len(gotAge) != len(wantAge) {
 		t.Fatalf("age auth len=%d", len(gotAge))
@@ -138,7 +167,7 @@ func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
 			t.Fatalf("age auth[%d]=%s want %s", i, gotAge[i].Name, name)
 		}
 	}
-	wantPremium := []string{"tv_downgraded", "web_creator", "web"}
+	wantPremium := []string{"web_creator", "tv_downgraded", "web"}
 	gotPremium := youtubeAuthenticatedFormatRecoveryClients(true, false)
 	if len(gotPremium) != len(wantPremium) {
 		t.Fatalf("premium len=%d", len(gotPremium))
@@ -234,6 +263,7 @@ func TestYouTubeMadeForKidsRecoveryAppendsTVDowngradedOnce(t *testing.T) {
 		responses: map[string][]byte{
 			"101": failed("UNPLAYABLE"),
 			"28":  failed("ERROR"),
+			"56":  failed("UNPLAYABLE"),
 			"7":   tvOK,
 		},
 	}
@@ -252,8 +282,10 @@ func TestYouTubeMadeForKidsRecoveryAppendsTVDowngradedOnce(t *testing.T) {
 	for _, request := range transport.requests {
 		clientIDs = append(clientIDs, request.Header.Get("X-Youtube-Client-Name"))
 	}
-	if strings.Join(clientIDs, ",") != "101,28,7" {
-		t.Fatalf("client order=%v; tv fallback must be appended exactly once", clientIDs)
+	// Upstream 5d5b634d (#17462): the VR-class made-for-kids fallback appends
+	// web_embedded (56) before tv_downgraded (7), each exactly once.
+	if strings.Join(clientIDs, ",") != "101,28,56,7" {
+		t.Fatalf("client order=%v; web_embedded+tv fallback must be appended exactly once", clientIDs)
 	}
 }
 
@@ -395,8 +427,9 @@ func TestYouTubeAuthenticatedRecoveryFallsBackToTVWithoutAnonymous(t *testing.T)
 	transport := &youtubeAuthRotationTransport{
 		cookies: youtubeAuthCookies(),
 		byClient: map[string][]byte{
-			"1": webFail,
-			"7": tvOK,
+			"1":  webFail,
+			"56": webFail,
+			"7":  tvOK,
 		},
 	}
 	config := discoverYouTubePageConfig(youtubeAuthRecoveryPage())
@@ -435,6 +468,7 @@ func TestYouTubeAuthenticatedNonPremiumOmitsWebCreatorWithoutAgeGate(t *testing.
 		cookies: youtubeAuthCookies(),
 		responses: []youtubeAuthSequencedResponse{
 			{clientID: "1", body: fail},
+			{clientID: "56", body: fail},
 			{clientID: "7", body: fail},
 			{clientID: "1", body: safariOK},
 		},
@@ -453,8 +487,9 @@ func TestYouTubeAuthenticatedNonPremiumOmitsWebCreatorWithoutAgeGate(t *testing.
 			t.Fatal("web_creator must not run without attributable age-gate signal")
 		}
 	}
-	if len(seq.clientIDs) != 3 || seq.clientIDs[0] != "1" || seq.clientIDs[1] != "7" || seq.clientIDs[2] != "1" {
-		t.Fatalf("client order=%v want WEB,tv,web", seq.clientIDs)
+	// Authed defaults after #17462: webpage WEB, then web_embedded, tv_downgraded, web.
+	if len(seq.clientIDs) != 4 || seq.clientIDs[0] != "1" || seq.clientIDs[1] != "56" || seq.clientIDs[2] != "7" || seq.clientIDs[3] != "1" {
+		t.Fatalf("client order=%v want WEB,web_embedded,tv,web", seq.clientIDs)
 	}
 }
 
@@ -465,6 +500,7 @@ func TestYouTubeAuthenticatedNonPremiumAllowsWebCreatorForAgeGate(t *testing.T) 
 		cookies: youtubeAuthCookies(),
 		responses: []youtubeAuthSequencedResponse{
 			{clientID: "1", body: ageFail},
+			{clientID: "56", body: ageFail},
 			{clientID: "7", body: ageFail},
 			{clientID: "1", body: ageFail},
 			{clientID: "62", body: creatorOK},
@@ -479,8 +515,9 @@ func TestYouTubeAuthenticatedNonPremiumAllowsWebCreatorForAgeGate(t *testing.T) 
 	if len(recovered) != 1 || recovered[0].clientName != "WEB_CREATOR" || recovered[0].clientID != 62 {
 		t.Fatalf("recovered=%+v", recovered)
 	}
-	if len(seq.clientIDs) != 4 || seq.clientIDs[3] != "62" {
-		t.Fatalf("client order=%v want WEB,tv,web_safari,web_creator", seq.clientIDs)
+	// Age-gated authed order after #17462: WEB, web_embedded, tv, web, web_creator.
+	if len(seq.clientIDs) != 5 || seq.clientIDs[4] != "62" {
+		t.Fatalf("client order=%v want WEB,web_embedded,tv,web,web_creator", seq.clientIDs)
 	}
 }
 
@@ -540,8 +577,8 @@ func TestYouTubeAuthenticatedPremiumFallsBackToGenericWeb(t *testing.T) {
 		cookies: youtubeAuthCookies(),
 		responses: []youtubeAuthSequencedResponse{
 			{clientID: "1", body: fail},
-			{clientID: "7", body: fail},
 			{clientID: "62", body: fail},
+			{clientID: "7", body: fail},
 			{clientID: "1", body: webOK},
 		},
 	}
@@ -554,8 +591,9 @@ func TestYouTubeAuthenticatedPremiumFallsBackToGenericWeb(t *testing.T) {
 	if len(recovered) != 1 || recovered[0].clientName != "WEB" || recovered[0].userAgent != youtubeAuthenticatedWebClient.UserAgent {
 		t.Fatalf("recovered=%+v", recovered)
 	}
-	if strings.Join(sequence.clientIDs, ",") != "1,7,62,1" {
-		t.Fatalf("premium order=%v want WEB,tv,web_creator,web", sequence.clientIDs)
+	// Premium order after #17462: WEB (webpage), web_creator, tv_downgraded, web.
+	if strings.Join(sequence.clientIDs, ",") != "1,62,7,1" {
+		t.Fatalf("premium order=%v want WEB,web_creator,tv,web", sequence.clientIDs)
 	}
 	lastBody := string(sequence.bodies[len(sequence.bodies)-1])
 	if strings.Contains(lastBody, "Safari") || strings.Contains(lastBody, `"userAgent"`) {
@@ -592,8 +630,10 @@ func TestYouTubeAuthenticatedPremiumWebCreatorSkipsGVSToken(t *testing.T) {
 	if len(recovered) != 1 || recovered[0].clientName != "WEB_CREATOR" {
 		t.Fatalf("recovered=%+v", recovered)
 	}
-	if len(transport.clientIDs) != 3 || transport.clientIDs[2] != "62" {
-		t.Fatalf("premium order=%v want WEB,tv,web_creator", transport.clientIDs)
+	// Premium tries web_creator first after #17462, so it succeeds right after
+	// the webpage WEB player: WEB, web_creator.
+	if len(transport.clientIDs) != 2 || transport.clientIDs[1] != "62" {
+		t.Fatalf("premium order=%v want WEB,web_creator", transport.clientIDs)
 	}
 }
 
@@ -613,6 +653,7 @@ func TestYouTubeAuthenticatedWebCreatorFailsClosedWithoutRequiredGVSToken(t *tes
 		cookies: youtubeAuthCookies(),
 		byClient: map[string][]byte{
 			"1":  fail,
+			"56": fail,
 			"7":  fail,
 			"62": creatorGVS,
 		},
@@ -651,6 +692,7 @@ func TestYouTubeAuthenticatedContradictoryIdentityRejected(t *testing.T) {
 		cookies: youtubeAuthCookies(),
 		byClient: map[string][]byte{
 			"1":  fail,
+			"56": fail,
 			"7":  []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"other0000001","title":"tv"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/tv","mimeType":"video/mp4"}]}}`),
 			"62": fail,
 		},
@@ -669,8 +711,9 @@ func TestYouTubeAuthenticatedSelectedClientSABRMetadata(t *testing.T) {
 	transport := &youtubeAuthRotationTransport{
 		cookies: youtubeAuthCookies(),
 		byClient: map[string][]byte{
-			"1": fail,
-			"7": tvOK,
+			"1":  fail,
+			"56": fail,
+			"7":  tvOK,
 		},
 	}
 	recovered, err := recoverAuthenticatedYouTubeFormats(context.Background(), transport, "fixture0001", discoverYouTubePageConfig(youtubeAuthRecoveryPage()), "auth-visitor", "page-id||user-session", false, false, nil, func() time.Time {
