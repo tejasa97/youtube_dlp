@@ -27,6 +27,14 @@ read-only pinned reference
   preserved, while repeated continuation tokens terminate iteration.
 - Existing authentication, unavailable, rate-limit, network, malformed
   metadata, traversal-limit, and cancellation categories.
+- Channel-level metadata (title and channel id) is read from the
+  tab-independent `channelMetadataRenderer`, so a channel that advertises only
+  shorts/live tabs (no videos tab) still surfaces its title and channel id.
+  This is the ytdlp-go analog of upstream `cf68b8f4` (#17386, "[ie/youtube:tab]
+  Always extract channel metadata"); ytdlp-go's aggregator never nulls the tab
+  data before reading metadata, so it is structurally immune to that upstream
+  regression. Guarded by
+  `TestYouTubeBareRootNoVideosPreservesChannelMetadata`.
 
 Route parsing rejects non-web hosts and schemes, credentials, explicit ports,
 fragments, trailing path components, encoded separators or NULs, invalid

@@ -217,6 +217,31 @@ func TestYouTubeBareRootNoVideosExcludesHomeShelvesAndEmptyRoot(t *testing.T) {
 	}
 }
 
+// TestYouTubeBareRootNoVideosPreservesChannelMetadata guards the ytdlp-go
+// analog of upstream yt-dlp cf68b8f4 (#17386, "[ie/youtube:tab] Always extract
+// channel metadata"). Upstream lost channel metadata when a channel advertised
+// only shorts/live tabs (no videos tab) because it nulled the tab data before
+// re-extracting metadata. ytdlp-go reads channel-level title and id from the
+// tab-independent channelMetadataRenderer, so a no-videos channel must still
+// surface its title and channel id.
+func TestYouTubeBareRootNoVideosPreservesChannelMetadata(t *testing.T) {
+	const base = "https://www.youtube.com/@synthetic-handle"
+	transport := youtubeRootTransport(t, base, readYouTubeRootFixture(t, "no-videos.html"))
+	result, err := NewYouTubeHandleTab().Extract(context.Background(), Request{URL: base, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := result.Info.ID(); id != "UCabcdefghijklmnopqrstuv" {
+		t.Fatalf("channel id lost for shorts/live-only channel: %q", id)
+	}
+	if title, _ := result.Info.Title(); title != "Synthetic Root Without Videos" {
+		t.Fatalf("channel title lost for shorts/live-only channel: %q", title)
+	}
+	if webpage, _ := result.Info.WebpageURL(); webpage != base {
+		t.Fatalf("webpage=%q", webpage)
+	}
+}
+
 func TestYouTubeBareRootFallsBackToTopicUploadsPlaylist(t *testing.T) {
 	const (
 		channelID  = "UCabcdefghijklmnopqrstuv"
