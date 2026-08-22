@@ -1,0 +1,4 @@
+{
+  "name": "ytdlp-go",
+  "install": "go mod download && go build ./..."
+}
