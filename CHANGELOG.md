@@ -19,6 +19,24 @@ interface maturity.
 
 ### Changed
 
+- No entries yet.
+
+### Fixed
+
+- No entries yet.
+
+### Security
+
+- No entries yet.
+
+## [0.3.0] - 2026-08-22
+
+### Added
+
+- No entries yet.
+
+### Changed
+
 - The public GitHub repository is `tejasa97/ytdlp-go`. The Go module path is
   now `github.com/tejasa97/ytdlp-go`. Downstream `go.mod` files and imports that
   used `github.com/tejasa97/youtube_dlp` must be updated. Tagged `v0.2.x`
@@ -137,7 +155,8 @@ Add an entry when a change affects:
 Pure test refactors, fixture maintenance, and internal evidence changes do not
 need a changelog entry unless they alter an observable claim.
 
-[Unreleased]: https://github.com/tejasa97/ytdlp-go/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/tejasa97/ytdlp-go/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/tejasa97/ytdlp-go/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/tejasa97/ytdlp-go/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/tejasa97/ytdlp-go/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/tejasa97/ytdlp-go/compare/v0.2.1...v0.2.2
