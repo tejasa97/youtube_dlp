@@ -87,8 +87,12 @@ func (profile youtubeClientProfile) valid() bool {
 }
 
 // Anonymous format-recovery clients from the pinned yt-dlp INNERTUBE_CLIENTS
-// table (aefce1ee), updated for upstream client maintenance 69ea20006.
-// Order is deterministic and bounded; values are exact.
+// table (aefce1ee), updated for upstream client maintenance 69ea20006 and the
+// android_vr default removal dae52d83 (#17461). Order is deterministic and
+// bounded; values are exact. android_vr is intentionally absent from this
+// default rotation: since 2026.08.17 YouTube 403s all of its formats at
+// version 1.65.10 (see youtubeAndroidVRClient). The profile is retained below
+// for defensive coverage and any explicit non-default selection.
 var youtubeAnonymousFormatRecoveryClients = []youtubeClientProfile{
 	{
 		Name: "visionos", ClientName: "VISIONOS", ClientID: "101",
@@ -107,21 +111,6 @@ var youtubeAnonymousFormatRecoveryClients = []youtubeClientProfile{
 		Context: map[string]any{
 			"androidSdkVersion": 30, "osName": "Android", "osVersion": "11",
 		},
-		GVSPolicy: youtubePOTPolicy{
-			Required: true, Recommended: true, NotRequiredWithPlayerToken: true,
-		},
-		PlayerPolicy: youtubePOTPolicy{Recommended: true},
-	},
-	{
-		Name: "android_vr", ClientName: "ANDROID_VR", ClientID: "28",
-		ClientVersion: "1.65.10",
-		UserAgent:     "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-		Context: map[string]any{
-			"androidSdkVersion": 32, "osName": "Android", "osVersion": "12L",
-			"deviceMake": "Oculus", "deviceModel": "Quest 3",
-		},
-		// YouTube selectively enforces GVS PO tokens for this client. Accepting
-		// unbound adaptive URLs here produces intermittent immediate HTTP 403s.
 		GVSPolicy: youtubePOTPolicy{
 			Required: true, Recommended: true, NotRequiredWithPlayerToken: true,
 		},
@@ -179,6 +168,40 @@ var (
 		SupportsCookies: true,
 		AllowAuth:       true,
 	}
+	// youtubeWebEmbeddedClient mirrors the pinned WEB_EMBEDDED_PLAYER profile
+	// (WEB_EMBEDDED_PLAYER / 56 / 2.20260708.00.00, SUPPORTS_COOKIES). Upstream
+	// 5d5b634d (#17462) added it to the authenticated defaults and to the
+	// visionos/android_vr age-gate/made-for-kids fallback because it can work
+	// around age-restriction for some embeddable videos. Upstream sets no GVS
+	// PO-token policy for this client. yt-dlp's INNERTUBE_CONTEXT pins only the
+	// client name/version and inherits the standard web User-Agent, which this
+	// port supplies explicitly to satisfy the profile validity check.
+	youtubeWebEmbeddedClient = youtubeClientProfile{
+		Name: "web_embedded", ClientName: "WEB_EMBEDDED_PLAYER", ClientID: "56",
+		ClientVersion:   "2.20260708.00.00",
+		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+		SupportsCookies: true,
+		AllowAuth:       true,
+	}
+	// youtubeAndroidVRClient is retained but excluded from the default anonymous
+	// rotation by dae52d83 (#17461). Pinned identity ANDROID_VR / 28 / 1.65.10.
+	// Newer versions (>1.65) may return SABR-only streams (#16168), and since
+	// 2026.08.17 version 1.65.10 has 403'd all formats (including live HLS and
+	// itag 18). The GVS fail-closed policy is preserved so that any explicit,
+	// non-default selection still refuses to advertise unbound adaptive URLs.
+	youtubeAndroidVRClient = youtubeClientProfile{
+		Name: "android_vr", ClientName: "ANDROID_VR", ClientID: "28",
+		ClientVersion: "1.65.10",
+		UserAgent:     "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+		Context: map[string]any{
+			"androidSdkVersion": 32, "osName": "Android", "osVersion": "12L",
+			"deviceMake": "Oculus", "deviceModel": "Quest 3",
+		},
+		GVSPolicy: youtubePOTPolicy{
+			Required: true, Recommended: true, NotRequiredWithPlayerToken: true,
+		},
+		PlayerPolicy: youtubePOTPolicy{Recommended: true},
+	}
 	youtubeAuthenticatedWebClient = youtubeClientProfile{
 		Name: "web", ClientName: "WEB", ClientID: "1",
 		ClientVersion:   "2.20260708.00.00",
@@ -203,17 +226,18 @@ var (
 )
 
 // youtubeAuthenticatedFormatRecoveryClients returns the Innertube clients tried
-// after the webpage WEB player. Order reproduces current yt-dlp defaults:
-//   - Premium: _DEFAULT_PREMIUM_CLIENTS = tv_downgraded, web_creator, web
-//   - Auth:    _DEFAULT_AUTHED_CLIENTS  = tv_downgraded, web
+// after the webpage WEB player. Order reproduces current yt-dlp defaults after
+// 5d5b634d (#17462):
+//   - Premium: _DEFAULT_PREMIUM_CLIENTS = web_creator, tv_downgraded, web
+//   - Auth:    _DEFAULT_AUTHED_CLIENTS  = web_embedded, tv_downgraded, web
 //
 // web_creator is appended on the non-Premium path only when an attributable
 // age/login-gate signal is present (yt-dlp _video.py append_client('web_creator')).
 func youtubeAuthenticatedFormatRecoveryClients(premium, ageGated bool) []youtubeClientProfile {
 	if premium {
-		return []youtubeClientProfile{youtubeTVDowngradedClient, youtubeWebCreatorClient, youtubeAuthenticatedWebClient}
+		return []youtubeClientProfile{youtubeWebCreatorClient, youtubeTVDowngradedClient, youtubeAuthenticatedWebClient}
 	}
-	clients := []youtubeClientProfile{youtubeTVDowngradedClient, youtubeAuthenticatedWebClient}
+	clients := []youtubeClientProfile{youtubeWebEmbeddedClient, youtubeTVDowngradedClient, youtubeAuthenticatedWebClient}
 	if ageGated {
 		clients = append(clients, youtubeWebCreatorClient)
 	}
@@ -393,8 +417,11 @@ func recoverYouTubeFormatsWithOptions(ctx context.Context, transport Transport, 
 			(profile.Name == "visionos" || profile.Name == "android_vr") &&
 			youtubeMadeForKidsFallbackStatus(player.PlayabilityStatus.Status) {
 			// Current yt-dlp retries made-for-kids failures from VR-class clients
-			// with tv_downgraded when JavaScript challenge support is available.
-			profiles = append(profiles, youtubeTVDowngradedClient)
+			// with web_embedded then tv_downgraded when JavaScript challenge
+			// support is available. web_embedded was added ahead of tv_downgraded
+			// by upstream 5d5b634d (#17462) because it can work around age /
+			// embeddable restrictions for some videos.
+			profiles = append(profiles, youtubeWebEmbeddedClient, youtubeTVDowngradedClient)
 			fallbackAdded = true
 		}
 		if player.PlayabilityStatus.Status == "OK" && hasYouTubeFormatCandidates(player) {

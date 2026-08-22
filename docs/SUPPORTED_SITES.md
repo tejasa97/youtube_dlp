@@ -305,17 +305,18 @@ The following YouTube functionality is supported:
   total/parent/reply/per-thread/depth limits;
 - adaptive video and audio formats recovered from the WEB player response and
   bounded anonymous Innertube clients in this order: `visionos`, `android`,
-  `android_vr`, `web_safari`, `ios`, `mweb`. When the logged-out webpage WEB
+  `web_safari`, `ios`, `mweb`. When the logged-out webpage WEB
   player includes challenge-required formats, recovery prefers
   challenge-free formats from those clients before invoking the JavaScript
-  helper. `android_vr` adaptive formats are omitted unless a GVS PO token is
-  available or a player token has already waived that GVS requirement.
-  Logged-out made-for-kids pages that fail on `visionos` or
-  `android_vr` with `UNPLAYABLE`/`ERROR` get a bounded `tv_downgraded` retry
-  when JavaScript support is present;
+  helper. `android_vr` was removed from this default rotation (upstream
+  #17461: since 2026.08.17 it returns HTTP 403 for all formats at version
+  1.65.10); it is retained only as a fail-closed, non-default profile.
+  Logged-out made-for-kids pages that fail on `visionos` with
+  `UNPLAYABLE`/`ERROR` get bounded `web_embedded` then `tv_downgraded`
+  retries when JavaScript support is present;
 - authenticated Innertube recovery after the webpage WEB player uses
-  `tv_downgraded` then `web`; Premium uses `tv_downgraded`, `web_creator`,
-  then `web`; non-Premium `web_creator` only when age-gated;
+  `web_embedded`, `tv_downgraded`, then `web`; Premium uses `web_creator`,
+  `tv_downgraded`, then `web`; non-Premium `web_creator` only when age-gated;
 - finite googlevideo HTTP downloads (muxed or adaptive) use upstream-compatible
   randomized 10 MiB ranges. A media HTTP 403 on those finite, non-live,
   non-SABR URLs re-extracts the source, matches the same representation,

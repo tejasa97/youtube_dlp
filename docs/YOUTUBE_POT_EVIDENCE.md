@@ -21,10 +21,13 @@ path component. Provider failures and panics are reduced to categorized errors,
 and request/response formatting redacts their contents. Context cancellation is
 propagated when a provider returns it.
 
-Anonymous `android_vr` recovery requires a GVS PO token for adaptive formats
-unless a player token has already waived that requirement
-(`NotRequiredWithPlayerToken`). Missing or rejected required tokens drop those
-formats instead of advertising URLs that immediately return HTTP 403.
+`android_vr` was removed from the default anonymous rotation (upstream #17461;
+since 2026.08.17 it returns HTTP 403 for all formats at version 1.65.10) but is
+retained as a fail-closed, non-default profile. When it is used, its recovery
+requires a GVS PO token for adaptive formats unless a player token has already
+waived that requirement (`NotRequiredWithPlayerToken`). Missing or rejected
+required tokens drop those formats instead of advertising URLs that immediately
+return HTTP 403.
 
 ## Explicit deviations
 

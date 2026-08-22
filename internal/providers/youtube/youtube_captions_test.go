@@ -289,7 +289,9 @@ func TestYouTubeAndroidPlayerTokenMakesGVSTokenOptional(t *testing.T) {
 	transport := &youtubeFallbackTransport{
 		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html")}},
 		responses: map[string][]byte{
-			"3": readYouTubeFixture(t, "android-player.json"), "28": readYouTubeFixture(t, "android-vr-player.json"),
+			// android_vr (28) removed from defaults (#17461); ios (5) carries the
+			// GVS-required adaptive formats whose requirement the player token waives.
+			"3": readYouTubeFixture(t, "android-player.json"), "5": readYouTubeFixture(t, "android-vr-player.json"),
 		},
 	}
 	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport, Options: Options{POT: director}})
