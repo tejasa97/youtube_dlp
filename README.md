@@ -131,9 +131,10 @@ development, packaging, and product-scope documentation.
 playlists, metadata, and produced artifacts. Add the canonical package with:
 
 ```sh
-go get github.com/tejasa97/youtube_dlp/pkg/ytdlp
+go get github.com/tejasa97/ytdlp-go/pkg/ytdlp
 ```
 
+Tagged `v0.2.x` releases remain available as `github.com/tejasa97/youtube_dlp`.
 The API remains pre-release; review upgrades and follow the
 [embedding guide](docs/EMBEDDING.md).
 

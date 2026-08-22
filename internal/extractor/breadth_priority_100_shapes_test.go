@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/ejs"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/engine"
 )
 
 func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {

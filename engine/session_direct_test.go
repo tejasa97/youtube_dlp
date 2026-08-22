@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/session"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/session"
 )
 
 type directSessionFixture struct {

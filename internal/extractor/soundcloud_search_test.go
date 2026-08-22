@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/extraction"
-	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/extraction"
+	"github.com/tejasa97/ytdlp-go/internal/network"
 )
 
 const soundCloudSearchClientID = "0123456789abcdef0123456789abcdef"

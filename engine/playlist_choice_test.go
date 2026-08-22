@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/ejs"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/engine"
 )
 
 type playlistChoicePageTransport struct {

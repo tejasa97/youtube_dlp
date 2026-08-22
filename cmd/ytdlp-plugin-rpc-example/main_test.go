@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+	"github.com/tejasa97/ytdlp-go/pkg/pluginapi"
 )
 
 func TestExampleExchange(t *testing.T) {

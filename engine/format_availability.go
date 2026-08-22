@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/dash"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/hls"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/ism"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/dash"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/hls"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/ism"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 const (

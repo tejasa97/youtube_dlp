@@ -1,8 +1,8 @@
 package ytdlp
 
 import (
-	"github.com/tejasa97/youtube_dlp/engine"
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/ytdlp-go/engine"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
 )
 
 // broadCompatibilityProviders constructs the unchanged full provider catalog

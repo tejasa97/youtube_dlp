@@ -16,9 +16,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/dlclark/regexp2"
-	"github.com/tejasa97/youtube_dlp/internal/compat/pyregex"
-	"github.com/tejasa97/youtube_dlp/internal/compat/template"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/compat/pyregex"
+	"github.com/tejasa97/ytdlp-go/internal/compat/template"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 const (

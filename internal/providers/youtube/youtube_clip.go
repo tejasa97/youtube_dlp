@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 // youtubeClipIDPattern bounds the clip-id grammar. Clip IDs are not 11-char

@@ -16,11 +16,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/sponsorblock"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/sponsorblock"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func TestSponsorBlockOptionsValidation(t *testing.T) {

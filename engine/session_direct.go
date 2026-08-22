@@ -14,17 +14,17 @@ import (
 	"strings"
 	"time"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/engine/value"
-	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
-	"github.com/tejasa97/youtube_dlp/internal/downloader"
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/fragment"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	protocoldash "github.com/tejasa97/youtube_dlp/internal/protocol/dash"
-	protocolhls "github.com/tejasa97/youtube_dlp/internal/protocol/hls"
-	"github.com/tejasa97/youtube_dlp/internal/session"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/engine/value"
+	"github.com/tejasa97/ytdlp-go/internal/atomicfile"
+	"github.com/tejasa97/ytdlp-go/internal/downloader"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/fragment"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	protocoldash "github.com/tejasa97/ytdlp-go/internal/protocol/dash"
+	protocolhls "github.com/tejasa97/ytdlp-go/internal/protocol/hls"
+	"github.com/tejasa97/ytdlp-go/internal/session"
 )
 
 const (

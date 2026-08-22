@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/pack"
-	"github.com/tejasa97/youtube_dlp/internal/pack/catalog"
-	"github.com/tejasa97/youtube_dlp/internal/pack/upgrade"
+	"github.com/tejasa97/ytdlp-go/internal/pack"
+	"github.com/tejasa97/ytdlp-go/internal/pack/catalog"
+	"github.com/tejasa97/ytdlp-go/internal/pack/upgrade"
 )
 
 var (

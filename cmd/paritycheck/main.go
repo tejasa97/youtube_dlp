@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tejasa97/youtube_dlp/internal/conformance"
-	"github.com/tejasa97/youtube_dlp/internal/upstreamdelta"
+	"github.com/tejasa97/ytdlp-go/internal/conformance"
+	"github.com/tejasa97/ytdlp-go/internal/upstreamdelta"
 )
 
 func main() {

@@ -110,7 +110,7 @@ director. The broad `pkg/ytdlp` composition owns those dependencies and its
 provider-specific support hooks.
 
 The public extraction-contract owner is
-`github.com/tejasa97/youtube_dlp/engine/provider`. Its generic registry and
+`github.com/tejasa97/ytdlp-go/engine/provider`. Its generic registry and
 bundle runtime, operation request, result/entry model, transport and credential
 capabilities, metadata values, and typed challenge/token and provider-support
 hooks are nameable by external provider packages. Historical internal contract

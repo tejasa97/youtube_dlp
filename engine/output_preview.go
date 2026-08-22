@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/tejasa97/youtube_dlp/engine/value"
-	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
+	"github.com/tejasa97/ytdlp-go/engine/value"
+	outputtemplate "github.com/tejasa97/ytdlp-go/internal/compat/template"
 )
 
 // OutputPreviewRequest contains the already-analyzed metadata and resolved

@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/protocol/hls"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/hls"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/format"
 )
 
 func TestBuildMergeArgumentsOrdering(t *testing.T) {

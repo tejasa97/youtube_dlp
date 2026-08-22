@@ -5,10 +5,10 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/engine"
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/engine"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 type youtubeOptionCaptureExtractor struct{ request extractor.Request }

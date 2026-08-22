@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/network/impersonate"
-	"github.com/tejasa97/youtube_dlp/internal/testserver"
+	"github.com/tejasa97/ytdlp-go/internal/network/impersonate"
+	"github.com/tejasa97/ytdlp-go/internal/testserver"
 )
 
 func TestClientHeadersCookiesRedirectsAndCompression(t *testing.T) {

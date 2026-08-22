@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 var (

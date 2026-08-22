@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/extractor"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/youtubeump"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/extractor"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/youtubeump"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func TestYouTubeSABRRefreshCoordinatorIdentityAndRedaction(t *testing.T) {

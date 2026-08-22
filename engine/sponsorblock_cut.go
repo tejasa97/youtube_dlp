@@ -12,12 +12,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/compat/chapterremove"
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
-	"github.com/tejasa97/youtube_dlp/internal/media/postprocess"
-	"github.com/tejasa97/youtube_dlp/internal/sponsorblock"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/compat/chapterremove"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/media/postprocess"
+	"github.com/tejasa97/ytdlp-go/internal/sponsorblock"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 type sponsorBlockCutJob struct {

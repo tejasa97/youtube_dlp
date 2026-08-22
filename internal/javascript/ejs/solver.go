@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/cache"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
+	"github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/cache"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/protocol"
 )
 
 const (

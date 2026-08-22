@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	outputtemplate "github.com/tejasa97/ytdlp-go/internal/compat/template"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func TestRenderPrintTablePinnedCorpus(t *testing.T) {

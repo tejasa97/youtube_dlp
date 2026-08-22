@@ -1,4 +1,4 @@
-module github.com/tejasa97/youtube_dlp
+module github.com/tejasa97/ytdlp-go
 
 go 1.25.12
 

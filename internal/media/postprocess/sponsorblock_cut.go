@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
-	"github.com/tejasa97/youtube_dlp/internal/sponsorblock"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/sponsorblock"
 )
 
 // SponsorBlockCut removes sponsor ranges from a media file using typed ffmpeg

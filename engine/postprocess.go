@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
-	"github.com/tejasa97/youtube_dlp/internal/media/postprocess"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/media/postprocess"
 )
 
 func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot, downloadedPath string, sink events.Sink) (string, []Artifact, error) {

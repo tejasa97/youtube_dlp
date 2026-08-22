@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
+	"github.com/tejasa97/ytdlp-go/internal/atomicfile"
 )
 
 func TestCheckpointCommitSnapshotsFollowContiguousCompletion(t *testing.T) {

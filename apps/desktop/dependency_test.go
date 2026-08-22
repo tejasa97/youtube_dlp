@@ -14,12 +14,12 @@ func TestDesktopProductionDependenciesStayFocusedOnYouTube(t *testing.T) {
 	}
 	for _, dependency := range strings.Fields(string(output)) {
 		switch {
-		case dependency == "github.com/tejasa97/youtube_dlp/pkg/ytdlp":
+		case dependency == "github.com/tejasa97/ytdlp-go/pkg/ytdlp":
 			t.Fatalf("Desktop reaches broad compatibility facade %q", dependency)
-		case dependency == "github.com/tejasa97/youtube_dlp/internal/extractor":
+		case dependency == "github.com/tejasa97/ytdlp-go/internal/extractor":
 			t.Fatalf("Desktop reaches mixed extractor package %q", dependency)
-		case strings.HasPrefix(dependency, "github.com/tejasa97/youtube_dlp/internal/providers/") &&
-			dependency != "github.com/tejasa97/youtube_dlp/internal/providers/youtube":
+		case strings.HasPrefix(dependency, "github.com/tejasa97/ytdlp-go/internal/providers/") &&
+			dependency != "github.com/tejasa97/ytdlp-go/internal/providers/youtube":
 			t.Fatalf("Desktop reaches non-YouTube provider package %q", dependency)
 		}
 	}

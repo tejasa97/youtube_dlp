@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 // raiMP4BaseFormat constructs a representative combined A/V HLS base format

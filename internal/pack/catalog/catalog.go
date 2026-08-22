@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/pack"
+	"github.com/tejasa97/ytdlp-go/internal/pack"
 )
 
 const (

@@ -15,8 +15,8 @@ import (
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
-	cookiesnapshot "github.com/tejasa97/youtube_dlp/internal/cookies/snapshot"
-	cookievalidate "github.com/tejasa97/youtube_dlp/internal/cookies/validate"
+	cookiesnapshot "github.com/tejasa97/ytdlp-go/internal/cookies/snapshot"
+	cookievalidate "github.com/tejasa97/ytdlp-go/internal/cookies/validate"
 )
 
 const chromeEpochOffsetSeconds int64 = 11_644_473_600

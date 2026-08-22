@@ -3,7 +3,7 @@
 Status: cycle-free public contracts, root provider-neutral orchestration,
 public complete-YouTube composition, and the Desktop switch are established.
 
-The `github.com/tejasa97/youtube_dlp/engine/provider` package owns the nameable neutral
+The `github.com/tejasa97/ytdlp-go/engine/provider` package owns the nameable neutral
 contracts used between orchestration and a composed provider:
 
 - generic provider, search-prefix, retry, registry, selection, and metadata
@@ -47,7 +47,7 @@ operation internals.
 
 ## Completed public YouTube composition and Desktop switch
 
-`github.com/tejasa97/youtube_dlp/providers/youtube` now adapts the complete
+`github.com/tejasa97/ytdlp-go/providers/youtube` now adapts the complete
 eight-provider internal YouTube family to `engine.Composition` through
 `youtube.NewComposition` in preserved
 order: Music search, Music browse, search, hashtag, alias tab, handle tab,

@@ -15,6 +15,6 @@ git clone https://github.com/vidstow/vidstow.git
 cd vidstow
 ```
 
-VidStow uses tagged `github.com/tejasa97/youtube_dlp` module releases from the
+VidStow uses tagged `github.com/tejasa97/ytdlp-go` module releases from the
 [ytdlp-go](https://github.com/tejasa97/ytdlp-go) repository and explicitly
 composes root `engine` with `providers/youtube`.

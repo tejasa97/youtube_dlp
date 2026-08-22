@@ -3,7 +3,7 @@ package ism
 import (
 	"context"
 	"errors"
-	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/network"
 	"math"
 	"net/http"
 	"net/http/httptest"

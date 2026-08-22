@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/ytdlp-go/internal/media/ffmpeg"
 )
 
 func TestFixupPolicyValidationAndTypedDetection(t *testing.T) {

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/plugin"
+	"github.com/tejasa97/ytdlp-go/internal/plugin"
 )
 
 func TestRPCExtract(t *testing.T) {

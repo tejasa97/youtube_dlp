@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/testserver"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/testserver"
 )
 
 func TestDownloadCompleteAndResume(t *testing.T) {

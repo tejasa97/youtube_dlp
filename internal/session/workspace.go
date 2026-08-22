@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
+	"github.com/tejasa97/ytdlp-go/internal/atomicfile"
 )
 
 // atomicManifestWrite is a narrow seam for commit-outcome tests. Production

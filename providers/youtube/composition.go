@@ -8,12 +8,12 @@ import (
 	"io"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/engine"
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/supervisor"
-	internalyoutube "github.com/tejasa97/youtube_dlp/internal/providers/youtube"
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/ytdlp-go/engine"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/ejs"
+	"github.com/tejasa97/ytdlp-go/internal/javascript/supervisor"
+	internalyoutube "github.com/tejasa97/ytdlp-go/internal/providers/youtube"
+	"github.com/tejasa97/ytdlp-go/internal/youtubepot"
 )
 
 // ProviderNames returns the complete YouTube family in routing order. The

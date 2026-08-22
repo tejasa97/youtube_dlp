@@ -2,7 +2,7 @@
 // aliases to the public engine/value owner.
 package value
 
-import public "github.com/tejasa97/youtube_dlp/engine/value"
+import public "github.com/tejasa97/ytdlp-go/engine/value"
 
 type (
 	Kind   = public.Kind

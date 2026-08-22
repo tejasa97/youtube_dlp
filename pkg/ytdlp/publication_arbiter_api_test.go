@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/engine"
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/ytdlp-go/engine"
+	"github.com/tejasa97/ytdlp-go/pkg/ytdlp"
 )
 
 func TestPublicationArbiterFacadeAliasesEngineContracts(t *testing.T) {

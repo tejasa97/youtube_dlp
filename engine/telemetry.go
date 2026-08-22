@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/tejasa97/youtube_dlp/internal/telemetry"
+	"github.com/tejasa97/ytdlp-go/internal/telemetry"
 )
 
 const (

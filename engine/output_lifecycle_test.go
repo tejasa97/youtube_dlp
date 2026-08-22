@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func newLifecycleTestTransaction(t testing.TB, destinations ...string) *mediaTransaction {

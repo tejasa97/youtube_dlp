@@ -16,8 +16,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/plugin"
-	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+	"github.com/tejasa97/ytdlp-go/internal/plugin"
+	"github.com/tejasa97/ytdlp-go/pkg/pluginapi"
 )
 
 const (

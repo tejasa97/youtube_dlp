@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/url"
 
-	youtubeprovider "github.com/tejasa97/youtube_dlp/internal/providers/youtube"
+	youtubeprovider "github.com/tejasa97/ytdlp-go/internal/providers/youtube"
 )
 
 var (

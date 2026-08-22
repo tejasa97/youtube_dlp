@@ -3,8 +3,8 @@
 package extractor
 
 import (
-	"github.com/tejasa97/youtube_dlp/internal/extraction"
-	youtubeprovider "github.com/tejasa97/youtube_dlp/internal/providers/youtube"
+	"github.com/tejasa97/ytdlp-go/internal/extraction"
+	youtubeprovider "github.com/tejasa97/ytdlp-go/internal/providers/youtube"
 )
 
 type Request struct {

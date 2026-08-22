@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	cookiesnapshot "github.com/tejasa97/youtube_dlp/internal/cookies/snapshot"
+	cookiesnapshot "github.com/tejasa97/ytdlp-go/internal/cookies/snapshot"
 )
 
 const maxDatabaseBytes int64 = 2 << 30

@@ -9,10 +9,10 @@ import (
 	"path"
 	"strings"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 type providerPolicyTransport struct {

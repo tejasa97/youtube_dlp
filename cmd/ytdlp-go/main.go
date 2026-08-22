@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/tejasa97/youtube_dlp/internal/cli"
+	"github.com/tejasa97/ytdlp-go/internal/cli"
 )
 
 func main() {

@@ -3,8 +3,8 @@
 package youtube
 
 import (
-	"github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/youtubepot"
 )
 
 // ChallengeSolver solves YouTube player JavaScript challenges.

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/testserver"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/testserver"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 func TestOutputTemplateTypePrecedenceAndValidation(t *testing.T) {

@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/plugin"
-	"github.com/tejasa97/youtube_dlp/internal/sandbox"
-	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+	"github.com/tejasa97/ytdlp-go/internal/plugin"
+	"github.com/tejasa97/ytdlp-go/internal/sandbox"
+	"github.com/tejasa97/ytdlp-go/pkg/pluginapi"
 )
 
 type SandboxConfig struct {

@@ -15,8 +15,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/network"
-	"github.com/tejasa97/youtube_dlp/internal/network/impersonate"
+	"github.com/tejasa97/ytdlp-go/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/network/impersonate"
 )
 
 const defaultCanaryURL = "https://tls.peet.ws/api/all"

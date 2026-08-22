@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/compat/template"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/compat/template"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 const maxTemplateBytes = 16 << 10

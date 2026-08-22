@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 // youtubePublicTabKind defines the entry kinds admitted by each explicitly

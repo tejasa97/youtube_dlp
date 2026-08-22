@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/ytdlp-go/internal/youtubepot"
 )
 
 type unavailableYouTubeSolver struct{ stubChallengeSolver }

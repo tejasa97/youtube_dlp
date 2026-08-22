@@ -12,8 +12,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	cookiesnapshot "github.com/tejasa97/youtube_dlp/internal/cookies/snapshot"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	cookiesnapshot "github.com/tejasa97/ytdlp-go/internal/cookies/snapshot"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 )
 
 var ErrInvalidInfoJSON = errors.New("invalid info JSON")

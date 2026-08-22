@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/protocol/youtubelive"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	mediaformat "github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/protocol/youtubelive"
 )
 
 type youtubeLiveRefreshCoordinator struct {

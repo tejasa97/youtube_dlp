@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/events"
-	"github.com/tejasa97/youtube_dlp/internal/fragment"
-	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/ytdlp-go/internal/events"
+	"github.com/tejasa97/ytdlp-go/internal/fragment"
+	"github.com/tejasa97/ytdlp-go/internal/network"
 )
 
 func FuzzVODCanonicalizationNeverPersistsURI(f *testing.F) {

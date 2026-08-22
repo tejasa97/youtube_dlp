@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+	"github.com/tejasa97/ytdlp-go/pkg/pluginapi"
 )
 
 const maximum = 1 << 20

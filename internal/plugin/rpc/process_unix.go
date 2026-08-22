@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/tejasa97/youtube_dlp/internal/plugin"
-	"github.com/tejasa97/youtube_dlp/internal/sandbox"
+	"github.com/tejasa97/ytdlp-go/internal/plugin"
+	"github.com/tejasa97/ytdlp-go/internal/sandbox"
 )
 
 type processIsolation struct {

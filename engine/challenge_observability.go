@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
 )
 
 // observingChallengeSolver emits a secret-free javascript_challenge event for

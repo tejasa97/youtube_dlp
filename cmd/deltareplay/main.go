@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/internal/upstreamdelta"
+	"github.com/tejasa97/ytdlp-go/internal/upstreamdelta"
 )
 
 func main() {

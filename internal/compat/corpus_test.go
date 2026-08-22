@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	compattemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
-	"github.com/tejasa97/youtube_dlp/internal/format"
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	compattemplate "github.com/tejasa97/ytdlp-go/internal/compat/template"
+	"github.com/tejasa97/ytdlp-go/internal/format"
+	"github.com/tejasa97/ytdlp-go/internal/value"
 	"gopkg.in/yaml.v3"
 )
 

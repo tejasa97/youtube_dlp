@@ -15,14 +15,14 @@ import (
 	"reflect"
 	"time"
 
-	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
-	"github.com/tejasa97/youtube_dlp/internal/pack"
-	"github.com/tejasa97/youtube_dlp/internal/plugin"
-	"github.com/tejasa97/youtube_dlp/internal/plugin/rpc"
-	pluginwasm "github.com/tejasa97/youtube_dlp/internal/plugin/wasm"
-	"github.com/tejasa97/youtube_dlp/internal/sandbox"
-	"github.com/tejasa97/youtube_dlp/internal/value"
-	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+	providerapi "github.com/tejasa97/ytdlp-go/engine/provider"
+	"github.com/tejasa97/ytdlp-go/internal/pack"
+	"github.com/tejasa97/ytdlp-go/internal/plugin"
+	"github.com/tejasa97/ytdlp-go/internal/plugin/rpc"
+	pluginwasm "github.com/tejasa97/ytdlp-go/internal/plugin/wasm"
+	"github.com/tejasa97/ytdlp-go/internal/sandbox"
+	"github.com/tejasa97/ytdlp-go/internal/value"
+	"github.com/tejasa97/ytdlp-go/pkg/pluginapi"
 )
 
 type PluginPermission = pluginapi.Permission

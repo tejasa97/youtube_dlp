@@ -16,7 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
+	"github.com/tejasa97/ytdlp-go/internal/atomicfile"
 )
 
 const maxCheckpointCallbackDuration = 5 * time.Second
